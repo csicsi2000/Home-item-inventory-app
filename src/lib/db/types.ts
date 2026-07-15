@@ -1,0 +1,83 @@
+export type UUID = string;
+
+/** Fields shared by every synced entity. */
+export interface SyncMeta {
+	/** ISO timestamp, client clock — used for last-write-wins conflict resolution. */
+	updatedAt: string;
+	/** Tombstone: set instead of hard-deleting so deletions sync to other devices. */
+	deletedAt: string | null;
+	/** 1 = has local changes that still need to be pushed (0/1 so Dexie can index it). */
+	dirty: 0 | 1;
+}
+
+export interface Collection extends SyncMeta {
+	id: UUID;
+	name: string;
+	/** Emoji or lucide icon name shown on the dashboard card. */
+	icon: string | null;
+	description: string | null;
+	createdAt: string;
+}
+
+export type ItemStatus = 'owned' | 'sold' | 'wishlist';
+
+export interface Item extends SyncMeta {
+	id: UUID;
+	collectionId: UUID;
+	name: string;
+	description: string | null;
+	quantity: number;
+	status: ItemStatus;
+	/** Free text: "mint", "used", "for parts", … */
+	condition: string | null;
+	tags: string[];
+	/** EAN/UPC/QR payload from the barcode scanner. */
+	barcode: string | null;
+	/** Raw text recognized on the item by OCR — searchable, feeds duplicate detection. */
+	ocrText: string | null;
+	acquisitionPrice: number | null;
+	acquisitionDate: string | null;
+	soldPrice: number | null;
+	soldDate: string | null;
+	customFields: Record<string, string>;
+	createdAt: string;
+}
+
+export interface ItemPhoto extends SyncMeta {
+	id: UUID;
+	itemId: UUID;
+	/** Full-res WebP (max edge 1600px). Null until downloaded from cloud on this device. */
+	blob: Blob | null;
+	/** ~300px WebP thumbnail; regenerated locally after a cloud download. */
+	thumb: Blob | null;
+	/** Supabase Storage object path (`{userId}/{photoId}.webp`) once uploaded. */
+	storagePath: string | null;
+	uploaded: 0 | 1;
+	isPrimary: boolean;
+	width: number;
+	height: number;
+	createdAt: string;
+}
+
+/** Derived, re-computable ML data for duplicate detection. */
+export interface ItemEmbedding {
+	itemId: UUID;
+	/** 64-bit DCT perceptual hash as 16 hex chars. */
+	phash: string;
+	/** L2-normalized MobileNet feature vector. */
+	vector: Float32Array;
+	updatedAt: string;
+	dirty: 0 | 1;
+}
+
+/** Per-table pull cursor for the sync engine. */
+export interface SyncState {
+	table: string;
+	lastPulledAt: string;
+}
+
+export type DuplicateVerdict =
+	| { kind: 'barcode'; item: Item }
+	| { kind: 'phash'; item: Item; distance: number }
+	| { kind: 'embedding'; item: Item; similarity: number }
+	| { kind: 'ocr'; item: Item; overlap: number };
