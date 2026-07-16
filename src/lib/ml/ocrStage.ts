@@ -50,8 +50,15 @@ export async function ocrItem(itemId: UUID): Promise<OcrOutcome | null> {
 		outcomes.push(await recognizePhoto((photo.blob ?? photo.thumb)!));
 	}
 	const text = outcomes.map((o) => o.text).filter(Boolean).join('\n');
-	const suggestedName = outcomes.find((o) => o.suggestedName)?.suggestedName ?? null;
+	// merge candidates across photos, keeping ranking order and de-duping
+	const candidates: string[] = [];
+	for (const o of outcomes) {
+		for (const c of o.candidates) {
+			if (!candidates.some((x) => x.toLowerCase() === c.toLowerCase())) candidates.push(c);
+		}
+	}
+	const suggestedName = candidates[0] ?? null;
 
 	await updateItem(itemId, { ocrText: text || null });
-	return { text, suggestedName };
+	return { text, suggestedName, candidates };
 }

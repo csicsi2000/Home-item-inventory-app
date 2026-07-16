@@ -24,25 +24,25 @@
 
 	let confirmingDelete = $state(false);
 	let rescanning = $state(false);
+	let nameCandidates = $state<string[]>([]);
 
 	async function rescanText() {
 		if (rescanning) return;
 		rescanning = true;
+		nameCandidates = [];
 		const toastId = toast.loading('Reading text on the photos…');
 		try {
 			const { ocrItem } = await import('$lib/ml/ocrStage');
 			const outcome = await ocrItem(itemId);
 			toast.dismiss(toastId);
 			if (!outcome?.text) {
-				toast.info('No readable text found');
-			} else if (outcome.suggestedName && outcome.suggestedName !== item.current?.name) {
-				toast.success('Text updated', {
-					description: `Looks like: “${outcome.suggestedName}”`,
-					action: {
-						label: 'Use as name',
-						onClick: () => updateItem(itemId, { name: outcome.suggestedName! })
-					}
-				});
+				toast.info('No readable text found on the photos');
+				return;
+			}
+			// offer the detected names so the user can pick the right one
+			nameCandidates = outcome.candidates.filter((c) => c !== item.current?.name);
+			if (nameCandidates.length) {
+				toast.success('Text updated — pick the name below');
 			} else {
 				toast.success('Text updated');
 			}
@@ -53,6 +53,12 @@
 		} finally {
 			rescanning = false;
 		}
+	}
+
+	function useAsName(name: string) {
+		updateItem(itemId, { name });
+		nameCandidates = [];
+		toast.success(`Named “${name}”`);
 	}
 
 	async function confirmDelete() {
@@ -103,6 +109,35 @@
 		<div class="mb-6">
 			<PhotoStrip {itemId} />
 		</div>
+
+		{#if nameCandidates.length}
+			<div class="mb-4 rounded-lg border bg-muted/40 p-3">
+				<div class="mb-2 flex items-center justify-between">
+					<p class="flex items-center gap-2 text-sm font-medium">
+						<ScanTextIcon class="size-4" />
+						Set name from photo text
+					</p>
+					<button
+						type="button"
+						class="text-xs text-muted-foreground hover:text-foreground"
+						onclick={() => (nameCandidates = [])}
+					>
+						Dismiss
+					</button>
+				</div>
+				<div class="flex flex-wrap gap-2">
+					{#each nameCandidates as candidate (candidate)}
+						<button
+							type="button"
+							class="rounded-full border bg-background px-3 py-1.5 text-sm transition-colors hover:bg-accent"
+							onclick={() => useAsName(candidate)}
+						>
+							{candidate}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 		{#if item.current.ocrText}
 			<details class="mb-6 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
