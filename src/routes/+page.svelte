@@ -6,6 +6,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Badge } from '$lib/components/ui/badge';
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
+	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import { createCollection, deleteCollection } from '$lib/db/repo';
 	import type { Collection } from '$lib/db/types';
@@ -50,10 +51,13 @@
 <div class="mx-auto max-w-5xl px-4 py-6 md:px-8">
 	<div class="mb-6 flex items-center justify-between">
 		<h1 class="text-2xl font-bold tracking-tight">Collections</h1>
-		<Button onclick={openCreate}>
-			<PlusIcon class="size-4" />
-			New
-		</Button>
+		<div class="flex items-center gap-1">
+			<SyncStatusBadge showLabel={false} />
+			<Button onclick={openCreate}>
+				<PlusIcon class="size-4" />
+				New
+			</Button>
+		</div>
 	</div>
 
 	{#if collections.length === 0}

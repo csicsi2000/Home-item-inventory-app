@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { startCamera, stopCamera, grabFrame } from '$lib/scan/camera';
+	import { startCamera, stopCamera, grabFrame, focusAt } from '$lib/scan/camera';
 	import { Button } from '$lib/components/ui/button';
 	import CameraOffIcon from '@lucide/svelte/icons/camera-off';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
@@ -28,6 +28,21 @@
 	let status = $state<'starting' | 'active' | 'error'>('starting');
 	let errorMessage = $state('');
 	let stream: MediaStream | null = null;
+	// tap-to-focus ring position (%), null when hidden
+	let focusRing = $state<{ x: number; y: number } | null>(null);
+	let focusTimer: ReturnType<typeof setTimeout> | undefined;
+
+	async function tapToFocus(event: PointerEvent) {
+		if (!video || status !== 'active' || !stream) return;
+		const rect = video.getBoundingClientRect();
+		const px = (event.clientX - rect.left) / rect.width;
+		const py = (event.clientY - rect.top) / rect.height;
+		// always show the ring for feedback, even if the device ignores the request
+		focusRing = { x: px * 100, y: py * 100 };
+		clearTimeout(focusTimer);
+		focusTimer = setTimeout(() => (focusRing = null), 700);
+		await focusAt(stream, px, py);
+	}
 
 	async function start() {
 		if (!video) return;
@@ -61,6 +76,7 @@
 		document.addEventListener('visibilitychange', onVisibility);
 		return () => {
 			document.removeEventListener('visibilitychange', onVisibility);
+			clearTimeout(focusTimer);
 			stop();
 		};
 	});
@@ -85,9 +101,17 @@
 		autoplay
 		muted
 		playsinline
-		class="aspect-[3/4] w-full object-cover sm:aspect-video"
+		onpointerdown={tapToFocus}
+		class="aspect-[3/4] w-full cursor-crosshair object-cover sm:aspect-video"
 		class:opacity-0={status !== 'active'}
 	></video>
+
+	{#if focusRing}
+		<div
+			class="pointer-events-none absolute size-16 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.3)] motion-safe:animate-[ping_0.7s_ease-out_1]"
+			style="left: {focusRing.x}%; top: {focusRing.y}%;"
+		></div>
+	{/if}
 
 	{#if status === 'starting'}
 		<div class="absolute inset-0 flex items-center justify-center text-sm text-white/70">

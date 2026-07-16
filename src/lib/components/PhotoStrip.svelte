@@ -5,6 +5,7 @@
 	import { runPostSavePipeline } from '$lib/ml/pipeline';
 	import { live } from '$lib/state/live.svelte';
 	import Thumb from './Thumb.svelte';
+	import PhotoViewer from './PhotoViewer.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import XIcon from '@lucide/svelte/icons/x';
@@ -33,6 +34,16 @@
 
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let busy = $state(false);
+	let viewerOpen = $state(false);
+	let viewerIndex = $state(0);
+
+	// full-res where we have it, thumbnail otherwise — matches the display order
+	const viewerBlobs = $derived(photos.current.map((p) => p.blob ?? p.thumb));
+
+	function openViewer(i: number) {
+		viewerIndex = i;
+		viewerOpen = true;
+	}
 
 	async function onFiles(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
@@ -68,9 +79,11 @@
 </script>
 
 <div class="flex gap-2 overflow-x-auto pb-1">
-	{#each photos.current as photo (photo.id)}
+	{#each photos.current as photo, i (photo.id)}
 		<div class="group relative shrink-0">
-			<Thumb blob={photo.thumb ?? photo.blob} alt="" class="size-28 rounded-lg border sm:size-32" />
+			<button type="button" class="block" onclick={() => openViewer(i)} aria-label="View photo full screen">
+				<Thumb blob={photo.thumb ?? photo.blob} alt="" class="size-28 rounded-lg border sm:size-32" />
+			</button>
 			<button
 				type="button"
 				class="absolute top-1 right-1 rounded-full bg-background/80 p-1 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
@@ -109,3 +122,5 @@
 		onchange={onFiles}
 	/>
 </div>
+
+<PhotoViewer bind:open={viewerOpen} bind:index={viewerIndex} blobs={viewerBlobs} />

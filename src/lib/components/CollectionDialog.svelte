@@ -4,6 +4,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import EmojiPicker from './EmojiPicker.svelte';
 	import { createCollection, updateCollection } from '$lib/db/repo';
 	import type { Collection } from '$lib/db/types';
 	import { toast } from 'svelte-sonner';
@@ -65,7 +66,7 @@
 			<div class="grid grid-cols-[5rem_1fr] gap-3">
 				<div class="grid gap-2">
 					<Label for="collection-icon">Icon</Label>
-					<Input id="collection-icon" bind:value={icon} placeholder="📦" class="text-center" />
+					<EmojiPicker bind:value={icon} />
 				</div>
 				<div class="grid gap-2">
 					<Label for="collection-name">Name</Label>

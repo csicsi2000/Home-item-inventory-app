@@ -15,6 +15,7 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
 	video.muted = true;
 	video.playsInline = true;
 	await video.play();
+	await enableAutofocus(stream);
 	return stream;
 }
 
@@ -32,3 +33,55 @@ export function grabFrame(video: HTMLVideoElement): HTMLCanvasElement {
 	ctx.drawImage(video, 0, 0);
 	return canvas;
 }
+
+// These focus capabilities aren't in the standard TS DOM lib yet.
+interface FocusCapabilities {
+	focusMode?: string[];
+	pointsOfInterest?: unknown;
+}
+
+function videoTrack(stream: MediaStream): MediaStreamTrack | undefined {
+	return stream.getVideoTracks()[0];
+}
+
+/** Ask the camera to keep autofocusing continuously (best-effort; Android Chrome supports it). */
+export async function enableAutofocus(stream: MediaStream): Promise<void> {
+	const track = videoTrack(stream);
+	if (!track?.getCapabilities) return;
+	const caps = track.getCapabilities() as MediaTrackCapabilities & FocusCapabilities;
+	if (caps.focusMode?.includes('continuous')) {
+		try {
+			await track.applyConstraints({
+				advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet]
+			});
+		} catch {
+			// ignore — not all devices honor this
+		}
+	}
+}
+
+/**
+ * Focus at a normalized point (0..1 within the frame). Uses pointsOfInterest
+ * and/or a single-shot refocus where the hardware exposes them. No-op otherwise.
+ * Returns true if any focus constraint was accepted.
+ */
+export async function focusAt(stream: MediaStream, nx: number, ny: number): Promise<boolean> {
+	const track = videoTrack(stream);
+	if (!track?.getCapabilities) return false;
+	const caps = track.getCapabilities() as MediaTrackCapabilities & FocusCapabilities;
+	const advanced: Record<string, unknown> = {};
+	if (caps.pointsOfInterest) {
+		advanced.pointsOfInterest = [{ x: clamp01(nx), y: clamp01(ny) }];
+	}
+	if (caps.focusMode?.includes('single-shot')) advanced.focusMode = 'single-shot';
+	else if (caps.focusMode?.includes('manual')) advanced.focusMode = 'manual';
+	if (!Object.keys(advanced).length) return false;
+	try {
+		await track.applyConstraints({ advanced: [advanced as MediaTrackConstraintSet] });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n));
