@@ -58,6 +58,7 @@ const collectionsSync: TableSync = {
 				name: c.name,
 				icon: c.icon,
 				description: c.description,
+				fields: c.fields ?? [],
 				created_at: c.createdAt,
 				updated_at: c.updatedAt,
 				deleted_at: c.deletedAt
@@ -79,6 +80,7 @@ const collectionsSync: TableSync = {
 			name: String(row.name ?? ''),
 			icon: (row.icon as string | null) ?? null,
 			description: (row.description as string | null) ?? null,
+			fields: (row.fields as Collection['fields'] | null) ?? [],
 			createdAt: iso(row.created_at),
 			updatedAt,
 			deletedAt: isoOrNull(row.deleted_at),

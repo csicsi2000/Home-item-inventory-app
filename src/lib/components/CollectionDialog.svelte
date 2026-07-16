@@ -5,8 +5,9 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import EmojiPicker from './EmojiPicker.svelte';
+	import CollectionFieldsEditor from './CollectionFieldsEditor.svelte';
 	import { createCollection, updateCollection } from '$lib/db/repo';
-	import type { Collection } from '$lib/db/types';
+	import type { Collection, CollectionField } from '$lib/db/types';
 	import { toast } from 'svelte-sonner';
 
 	let {
@@ -17,6 +18,7 @@
 	let name = $state('');
 	let icon = $state('');
 	let description = $state('');
+	let fields = $state<CollectionField[]>([]);
 	let saving = $state(false);
 
 	$effect(() => {
@@ -24,6 +26,8 @@
 			name = collection?.name ?? '';
 			icon = collection?.icon ?? '';
 			description = collection?.description ?? '';
+			// clone so edits don't mutate the live record before saving
+			fields = (collection?.fields ?? []).map((f) => ({ ...f }));
 		}
 	});
 
@@ -35,7 +39,12 @@
 			const data = {
 				name: name.trim(),
 				icon: icon.trim() || null,
-				description: description.trim() || null
+				description: description.trim() || null,
+				// keep only named fields
+				fields: $state
+					.snapshot(fields)
+					.map((f) => ({ ...f, label: f.label.trim() }))
+					.filter((f) => f.label)
 			};
 			if (collection) {
 				await updateCollection(collection.id, data);
@@ -53,7 +62,7 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-md">
+	<Dialog.Content class="max-h-[85vh] overflow-y-auto sm:max-w-md">
 		<Dialog.Header>
 			<Dialog.Title>{collection ? 'Edit collection' : 'New collection'}</Dialog.Title>
 			<Dialog.Description>
@@ -77,6 +86,10 @@
 			<div class="grid gap-2">
 				<Label for="collection-description">Description <span class="text-muted-foreground">(optional)</span></Label>
 				<Textarea id="collection-description" bind:value={description} rows={2} />
+			</div>
+			<div class="grid gap-2">
+				<Label>Item fields <span class="text-muted-foreground">(optional)</span></Label>
+				<CollectionFieldsEditor bind:fields />
 			</div>
 			<Dialog.Footer>
 				<Button type="submit" disabled={!name.trim() || saving} class="w-full sm:w-auto">

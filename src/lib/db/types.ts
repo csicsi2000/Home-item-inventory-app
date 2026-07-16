@@ -10,12 +10,21 @@ export interface SyncMeta {
 	dirty: 0 | 1;
 }
 
+/** A field defined at the collection level and shown on every item in it. */
+export interface CollectionField {
+	id: UUID;
+	label: string;
+	type: 'text' | 'number';
+}
+
 export interface Collection extends SyncMeta {
 	id: UUID;
 	name: string;
 	/** Emoji or lucide icon name shown on the dashboard card. */
 	icon: string | null;
 	description: string | null;
+	/** Field template applied to items in this collection (values live in item.customFields). */
+	fields: CollectionField[];
 	createdAt: string;
 }
 

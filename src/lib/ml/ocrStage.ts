@@ -62,3 +62,41 @@ export async function ocrItem(itemId: UUID): Promise<OcrOutcome | null> {
 	await updateItem(itemId, { ocrText: text || null });
 	return { text, suggestedName, candidates };
 }
+
+/**
+ * Re-run OCR over every item that has a photo — used to retroactively improve
+ * entries after the recognition pipeline changes. Refreshes ocrText for all,
+ * and auto-names only items that are still unnamed (never overwrites a name
+ * the user set).
+ */
+export async function reprocessAllItems(
+	onProgress?: (done: number, total: number) => void
+): Promise<{ processed: number; named: number }> {
+	const items = await db.items.filter((i) => !i.deletedAt).toArray();
+	const targets: typeof items = [];
+	for (const item of items) {
+		const hasPhoto = await db.photos
+			.where('itemId')
+			.equals(item.id)
+			.filter((p) => !p.deletedAt && !!(p.blob ?? p.thumb))
+			.count();
+		if (hasPhoto) targets.push(item);
+	}
+
+	let processed = 0;
+	let named = 0;
+	for (const item of targets) {
+		try {
+			const outcome = await ocrItem(item.id);
+			if (outcome && !item.name.trim() && outcome.suggestedName) {
+				await updateItem(item.id, { name: outcome.suggestedName });
+				named++;
+			}
+		} catch (err) {
+			console.warn('reprocess failed for', item.id, err);
+		}
+		processed++;
+		onProgress?.(processed, targets.length);
+	}
+	return { processed, named };
+}

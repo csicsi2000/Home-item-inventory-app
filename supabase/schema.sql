@@ -15,6 +15,7 @@ create table public.collections (
   name text not null,
   icon text,
   description text,
+  fields jsonb not null default '[]',
   created_at timestamptz not null,
   updated_at timestamptz not null,
   server_updated_at timestamptz not null default now(),

@@ -29,11 +29,24 @@
 	let acquisitionDate = $state(initial.acquisitionDate ?? '');
 	let soldPrice = $state(initial.soldPrice?.toString() ?? '');
 	let soldDate = $state(initial.soldDate ?? '');
-	let customFields = $state<Record<string, string>>({ ...initial.customFields });
 	let collectionId = $state(initial.collectionId);
 	let saving = $state(false);
 
 	const collections = $derived(collectionsLive.current);
+
+	// collection field template for the item's (current) collection
+	const templateFields = $derived(collections.find((c) => c.id === collectionId)?.fields ?? []);
+
+	// split the item's stored custom fields into template values vs. ad-hoc extras
+	// svelte-ignore state_referenced_locally
+	const initialTemplate = collectionsLive.current.find((c) => c.id === initial.collectionId)?.fields ?? [];
+	const initialLabels = new Set(initialTemplate.map((f) => f.label));
+	let templateValues = $state<Record<string, string>>(
+		Object.fromEntries(initialTemplate.map((f) => [f.label, initial.customFields[f.label] ?? '']))
+	);
+	let extraFields = $state<Record<string, string>>(
+		Object.fromEntries(Object.entries(initial.customFields).filter(([k]) => !initialLabels.has(k)))
+	);
 	const statusLabels: Record<ItemStatus, string> = {
 		owned: 'Owned',
 		sold: 'Sold',
@@ -44,6 +57,19 @@
 		const n = parseFloat(s.replace(',', '.'));
 		return Number.isFinite(n) ? n : null;
 	};
+
+	/** ad-hoc extras first, then non-empty template values (template wins on conflict) */
+	function mergedCustomFields(): Record<string, string> {
+		const merged: Record<string, string> = {};
+		for (const [k, v] of Object.entries($state.snapshot(extraFields))) {
+			if (k.trim() && `${v}`.trim()) merged[k] = v;
+		}
+		for (const f of templateFields) {
+			const v = (templateValues[f.label] ?? '').trim();
+			if (v) merged[f.label] = v;
+		}
+		return merged;
+	}
 
 	async function save(event: SubmitEvent) {
 		event.preventDefault();
@@ -63,7 +89,7 @@
 				acquisitionDate: acquisitionDate || null,
 				soldPrice: status === 'sold' ? parseNum(soldPrice) : null,
 				soldDate: status === 'sold' ? soldDate || new Date().toISOString().slice(0, 10) : null,
-				customFields: $state.snapshot(customFields),
+				customFields: mergedCustomFields(),
 				collectionId
 			});
 			toast.success('Saved');
@@ -145,9 +171,25 @@
 		</div>
 	</div>
 
+	{#if templateFields.length}
+		<div class="grid gap-3 sm:grid-cols-2">
+			{#each templateFields as field (field.id)}
+				<div class="grid gap-2">
+					<Label for="tmpl-{field.id}">{field.label}</Label>
+					<Input
+						id="tmpl-{field.id}"
+						type={field.type === 'number' ? 'number' : 'text'}
+						value={templateValues[field.label] ?? ''}
+						oninput={(e) => (templateValues[field.label] = e.currentTarget.value)}
+					/>
+				</div>
+			{/each}
+		</div>
+	{/if}
+
 	<div class="grid gap-2">
-		<Label>Custom fields</Label>
-		<CustomFieldsEditor bind:fields={customFields} />
+		<Label>{templateFields.length ? 'Other fields' : 'Custom fields'}</Label>
+		<CustomFieldsEditor bind:fields={extraFields} />
 	</div>
 
 	{#if collections.length > 1}

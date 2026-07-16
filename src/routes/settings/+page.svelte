@@ -15,6 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
+	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
 	import SunIcon from '@lucide/svelte/icons/sun';
 	import MoonIcon from '@lucide/svelte/icons/moon';
 	import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -25,6 +26,34 @@
 	let email = $state('');
 	let magicSent = $state(false);
 	let persisted = $state<boolean | null>(null);
+	let reprocessing = $state(false);
+
+	async function reprocessAll() {
+		if (reprocessing) return;
+		reprocessing = true;
+		const id = toast.loading('Preparing to re-scan photos…');
+		try {
+			const { reprocessAllItems } = await import('$lib/ml/ocrStage');
+			const res = await reprocessAllItems((done, total) =>
+				toast.loading(`Re-scanning photos… ${done}/${total}`, { id })
+			);
+			toast.dismiss(id);
+			if (res.processed === 0) {
+				toast.info('No items with photos to re-scan');
+			} else {
+				toast.success(
+					`Re-scanned ${res.processed} item${res.processed === 1 ? '' : 's'}` +
+						(res.named ? ` · auto-named ${res.named}` : '')
+				);
+			}
+		} catch (err) {
+			console.error(err);
+			toast.dismiss(id);
+			toast.error('Re-scan failed');
+		} finally {
+			reprocessing = false;
+		}
+	}
 
 	$effect(() => {
 		navigator.storage?.persisted?.().then((v) => (persisted = v));
@@ -199,6 +228,20 @@
 					/>
 				</div>
 			{/if}
+			<Separator />
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<Label>Re-scan all photos</Label>
+					<p class="text-xs text-muted-foreground">
+						Re-read text on every item using the latest recognition, and auto-name items that
+						still have no name.
+					</p>
+				</div>
+				<Button variant="outline" size="sm" onclick={reprocessAll} disabled={reprocessing}>
+					<ScanTextIcon class="size-4" />
+					{reprocessing ? 'Re-scanning…' : 'Re-scan all'}
+				</Button>
+			</div>
 			<Button
 				variant="ghost"
 				size="sm"

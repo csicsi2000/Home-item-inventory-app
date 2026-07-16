@@ -18,7 +18,7 @@ function notifyItemsChanged(ids: UUID[]) {
 // ---------- collections ----------
 
 export async function createCollection(
-	data: Pick<Collection, 'name'> & Partial<Pick<Collection, 'icon' | 'description'>>
+	data: Pick<Collection, 'name'> & Partial<Pick<Collection, 'icon' | 'description' | 'fields'>>
 ): Promise<Collection> {
 	const t = now();
 	const collection: Collection = {
@@ -26,6 +26,7 @@ export async function createCollection(
 		name: data.name,
 		icon: data.icon ?? null,
 		description: data.description ?? null,
+		fields: data.fields ?? [],
 		createdAt: t,
 		updatedAt: t,
 		deletedAt: null,
@@ -38,7 +39,7 @@ export async function createCollection(
 
 export async function updateCollection(
 	id: UUID,
-	patch: Partial<Pick<Collection, 'name' | 'icon' | 'description'>>
+	patch: Partial<Pick<Collection, 'name' | 'icon' | 'description' | 'fields'>>
 ): Promise<void> {
 	await db.collections.update(id, { ...patch, updatedAt: now(), dirty: 1 });
 	notifyItemsChanged([]);
