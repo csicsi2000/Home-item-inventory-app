@@ -11,6 +11,8 @@ interface StoredSettings {
 	autoOcr: boolean;
 	/** run duplicate detection automatically on new photos */
 	autoDuplicateCheck: boolean;
+	/** use the Florence-2 VLM (WebGPU) for naming instead of Tesseract */
+	smartNaming: boolean;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -18,7 +20,8 @@ const DEFAULTS: StoredSettings = {
 	dupHintThreshold: 0.82,
 	phashMaxDistance: 10,
 	autoOcr: true,
-	autoDuplicateCheck: true
+	autoDuplicateCheck: true,
+	smartNaming: false
 };
 
 function loadStored(): StoredSettings {
@@ -36,6 +39,7 @@ class Settings implements StoredSettings {
 	phashMaxDistance = $state(DEFAULTS.phashMaxDistance);
 	autoOcr = $state(DEFAULTS.autoOcr);
 	autoDuplicateCheck = $state(DEFAULTS.autoDuplicateCheck);
+	smartNaming = $state(DEFAULTS.smartNaming);
 
 	constructor() {
 		Object.assign(this, loadStored());
@@ -47,7 +51,8 @@ class Settings implements StoredSettings {
 			dupHintThreshold: this.dupHintThreshold,
 			phashMaxDistance: this.phashMaxDistance,
 			autoOcr: this.autoOcr,
-			autoDuplicateCheck: this.autoDuplicateCheck
+			autoDuplicateCheck: this.autoDuplicateCheck,
+			smartNaming: this.smartNaming
 		};
 		localStorage.setItem(KEY, JSON.stringify(data));
 	}

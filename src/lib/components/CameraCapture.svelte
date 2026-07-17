@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { startCamera, stopCamera, grabFrame, focusAt } from '$lib/scan/camera';
+	import { startCamera, stopCamera, capturePhoto, focusAt } from '$lib/scan/camera';
 	import { Button } from '$lib/components/ui/button';
 	import CameraOffIcon from '@lucide/svelte/icons/camera-off';
 	import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
@@ -13,8 +13,8 @@
 		busy = false,
 		overlay
 	}: {
-		/** Shutter pressed — receives the full-res frame. */
-		onCapture: (frame: HTMLCanvasElement) => void;
+		/** Shutter pressed — receives the captured photo (full-res blob, or a preview frame fallback). */
+		onCapture: (frame: Blob | HTMLCanvasElement) => void;
 		/** Gallery fallback — receives picked image files. */
 		onFiles: (files: File[]) => void;
 		/** Fires when the stream is live (used by the barcode scan loop). */
@@ -81,9 +81,9 @@
 		};
 	});
 
-	function shutter() {
-		if (!video || status !== 'active' || busy) return;
-		onCapture(grabFrame(video));
+	async function shutter() {
+		if (!video || status !== 'active' || busy || !stream) return;
+		onCapture(await capturePhoto(video, stream));
 	}
 
 	function pickFiles(event: Event) {

@@ -54,14 +54,14 @@ export interface OcrOutcome {
 	candidates: string[];
 }
 
-interface OcrLine {
+export interface OcrLine {
 	text: string;
 	confidence: number;
 	height: number;
 	top: number;
 }
 
-function cleanLine(raw: string): string {
+export function cleanLine(raw: string): string {
 	return raw
 		.replace(/[|_~^`]+/g, ' ')
 		.replace(/\s+/g, ' ')
@@ -155,7 +155,7 @@ function scoreName(line: OcrLine, imageHeight: number): number | null {
 	return line.height * positionBonus * caseBonus * confWeight;
 }
 
-function rankNames(lines: OcrLine[], imageHeight: number): string[] {
+export function rankNames(lines: OcrLine[], imageHeight: number): string[] {
 	const scored = lines
 		.map((l) => ({ text: cleanLine(l.text), score: scoreName(l, imageHeight) }))
 		.filter((x): x is { text: string; score: number } => x.score !== null)

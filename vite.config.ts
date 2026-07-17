@@ -54,6 +54,19 @@ export default defineConfig({
 						}
 					},
 					{
+						// Florence-2 (transformers.js) weights + config from the HF CDN —
+						// cache the one-time download so smart naming works offline afterwards
+						urlPattern: ({ url }) =>
+							url.hostname === 'huggingface.co' || url.hostname.endsWith('.hf.co'),
+						handler: 'CacheFirst',
+						options: {
+							cacheName: 'hf-models',
+							expiration: { maxEntries: 60 },
+							rangeRequests: true,
+							cacheableResponse: { statuses: [0, 200] }
+						}
+					},
+					{
 						urlPattern: ({ url }) =>
 							url.hostname.endsWith('.supabase.co') && url.pathname.startsWith('/storage'),
 						handler: 'StaleWhileRevalidate',

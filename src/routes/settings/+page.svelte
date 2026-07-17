@@ -27,6 +27,19 @@
 	let magicSent = $state(false);
 	let persisted = $state<boolean | null>(null);
 	let reprocessing = $state(false);
+	let webgpuAvailable = $state<boolean | null>(null);
+
+	$effect(() => {
+		const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+		if (!gpu) {
+			webgpuAvailable = false;
+			return;
+		}
+		gpu
+			.requestAdapter()
+			.then((a) => (webgpuAvailable = a != null))
+			.catch(() => (webgpuAvailable = false));
+	});
 
 	async function reprocessAll() {
 		if (reprocessing) return;
@@ -172,6 +185,25 @@
 					checked={settings.autoOcr}
 					onCheckedChange={(v) => {
 						settings.autoOcr = v;
+						settings.save();
+					}}
+				/>
+			</div>
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<Label>Smart AI naming <span class="text-muted-foreground">(experimental)</span></Label>
+					<p class="text-xs text-muted-foreground">
+						Uses the on-device Florence-2 model for more accurate reading and to describe
+						items without text. One-time model download (~a few hundred MB), then works offline.
+						{#if webgpuAvailable === false}
+							<span class="text-amber-600">Your device lacks WebGPU, so this stays on the standard reader.</span>
+						{/if}
+					</p>
+				</div>
+				<Switch
+					checked={settings.smartNaming}
+					onCheckedChange={(v) => {
+						settings.smartNaming = v;
 						settings.save();
 					}}
 				/>

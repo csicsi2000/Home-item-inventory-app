@@ -40,6 +40,7 @@
 		"vitest": "^4.1.8"
 	},
 	"dependencies": {
+		"@huggingface/transformers": "^4.2.0",
 		"@supabase/supabase-js": "^2.110.6",
 		"@tensorflow/tfjs-backend-wasm": "^4.22.0",
 		"@tensorflow/tfjs-backend-webgl": "^4.22.0",

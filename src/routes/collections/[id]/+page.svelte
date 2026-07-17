@@ -3,18 +3,22 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { db } from '$lib/db/schema';
-	import { createItem } from '$lib/db/repo';
+	import { createItem, deleteItems } from '$lib/db/repo';
 	import type { Item, ItemStatus } from '$lib/db/types';
 	import { live } from '$lib/state/live.svelte';
 	import ItemCard from '$lib/components/ItemCard.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { cn } from '$lib/utils.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import CameraIcon from '@lucide/svelte/icons/camera';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
+	import CheckSquareIcon from '@lucide/svelte/icons/check-square';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import { toast } from 'svelte-sonner';
 
 	const collectionId = $derived(page.params.id!);
 
@@ -53,6 +57,29 @@
 	let query = $state('');
 	let statusFilter = $state<ItemStatus | 'all'>('all');
 
+	// bulk selection
+	let selecting = $state(false);
+	let selected = $state<Set<string>>(new Set());
+	let confirmingBulkDelete = $state(false);
+
+	function toggleSelect(id: string) {
+		const next = new Set(selected);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		selected = next;
+	}
+	function exitSelect() {
+		selecting = false;
+		selected = new Set();
+	}
+	async function bulkDelete() {
+		const ids = [...selected];
+		await deleteItems(ids);
+		confirmingBulkDelete = false;
+		exitSelect();
+		toast.success(`Deleted ${ids.length} item${ids.length === 1 ? '' : 's'}`);
+	}
+
 	const filtered = $derived(
 		items.current.filter((item) => {
 			if (statusFilter !== 'all' && item.status !== statusFilter) return false;
@@ -70,6 +97,13 @@
 			);
 		})
 	);
+
+	const allFilteredSelected = $derived(
+		filtered.length > 0 && filtered.every((i) => selected.has(i.id))
+	);
+	function toggleSelectAll() {
+		selected = allFilteredSelected ? new Set() : new Set(filtered.map((i) => i.id));
+	}
 
 	const statusTabs: { value: ItemStatus | 'all'; label: string }[] = [
 		{ value: 'all', label: 'All' },
@@ -96,14 +130,29 @@
 			<h1 class="truncate text-xl font-bold tracking-tight">{collection.current?.name ?? '…'}</h1>
 			<p class="text-xs text-muted-foreground">{items.current.length} items</p>
 		</div>
-		<Button variant="outline" size="sm" onclick={addManually}>
-			<PlusIcon class="size-4" />
-			<span class="hidden sm:inline">Add</span>
-		</Button>
-		<Button size="sm" href="{base}/collections/{collectionId}/add">
-			<CameraIcon class="size-4" />
-			Scan
-		</Button>
+		{#if selecting}
+			<Button variant="ghost" size="sm" onclick={exitSelect}>Cancel</Button>
+		{:else}
+			{#if items.current.length > 0}
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={() => (selecting = true)}
+					aria-label="Select items"
+					title="Select items"
+				>
+					<CheckSquareIcon class="size-5" />
+				</Button>
+			{/if}
+			<Button variant="outline" size="sm" onclick={addManually}>
+				<PlusIcon class="size-4" />
+				<span class="hidden sm:inline">Add</span>
+			</Button>
+			<Button size="sm" href="{base}/collections/{collectionId}/add">
+				<CameraIcon class="size-4" />
+				Scan
+			</Button>
+		{/if}
 	</div>
 
 	{#if collection.current?.description}
@@ -155,12 +204,18 @@
 	{:else if filtered.length === 0}
 		<p class="py-12 text-center text-sm text-muted-foreground">No items match your filter.</p>
 	{:else}
-		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+		<div class="grid grid-cols-2 gap-3 pb-20 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
 			{#each filtered as item (item.id)}
-				<ItemCard {item} thumb={thumbs.current[item.id]} />
+				<ItemCard
+					{item}
+					thumb={thumbs.current[item.id]}
+					selectable={selecting}
+					selected={selected.has(item.id)}
+					onToggle={() => toggleSelect(item.id)}
+				/>
 			{/each}
 		</div>
-		{#if statusFilter === 'all' && !query}
+		{#if statusFilter === 'all' && !query && !selecting}
 			<p class="mt-4 text-center text-xs text-muted-foreground">
 				<Badge variant="outline" class="mr-1">{filtered.reduce((n, i) => n + i.quantity, 0)}</Badge>
 				total pieces including duplicates
@@ -168,3 +223,45 @@
 		{/if}
 	{/if}
 </div>
+
+{#if selecting}
+	<!-- bulk action bar -->
+	<div
+		class="fixed inset-x-0 bottom-16 z-40 mx-auto flex max-w-2xl items-center gap-2 px-4 md:bottom-4"
+		style="padding-bottom: env(safe-area-inset-bottom)"
+	>
+		<div class="flex w-full items-center gap-2 rounded-xl border bg-background/95 p-2 shadow-lg backdrop-blur">
+			<Button variant="ghost" size="sm" onclick={toggleSelectAll}>
+				{allFilteredSelected ? 'Clear' : 'Select all'}
+			</Button>
+			<span class="text-sm text-muted-foreground">{selected.size} selected</span>
+			<div class="flex-1"></div>
+			<Button
+				variant="destructive"
+				size="sm"
+				disabled={selected.size === 0}
+				onclick={() => (confirmingBulkDelete = true)}
+			>
+				<Trash2Icon class="size-4" />
+				Delete
+			</Button>
+		</div>
+	</div>
+{/if}
+
+<AlertDialog.Root bind:open={confirmingBulkDelete}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Delete {selected.size} item{selected.size === 1 ? '' : 's'}?</AlertDialog.Title>
+			<AlertDialog.Description>
+				They’ll be removed from this collection on every synced device. This can’t be undone.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action class="bg-destructive text-white hover:bg-destructive/90" onclick={bulkDelete}>
+				Delete
+			</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>

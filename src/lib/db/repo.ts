@@ -117,6 +117,16 @@ export async function deleteItem(id: UUID): Promise<void> {
 	notifyItemsChanged([id]);
 }
 
+/** Tombstone many items at once (bulk cleanup). */
+export async function deleteItems(ids: UUID[]): Promise<void> {
+	if (!ids.length) return;
+	const t = now();
+	await db.transaction('rw', [db.items, db.photos, db.embeddings], async () => {
+		for (const id of ids) await tombstoneItem(id, t);
+	});
+	notifyItemsChanged(ids);
+}
+
 export async function moveItem(id: UUID, collectionId: UUID): Promise<void> {
 	await updateItem(id, { collectionId });
 }

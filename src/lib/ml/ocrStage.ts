@@ -1,7 +1,8 @@
 import { db } from '$lib/db/schema';
 import { updateItem } from '$lib/db/repo';
 import type { UUID } from '$lib/db/types';
-import { recognizePhoto, type OcrOutcome } from './ocr';
+import { type OcrOutcome } from './ocr';
+import { analyzePhoto } from './analyze';
 import { toast } from 'svelte-sonner';
 import { base } from '$app/paths';
 import { settings } from '$lib/state/settings.svelte';
@@ -13,7 +14,7 @@ export async function ocrStage(itemId: UUID, photoId: UUID): Promise<void> {
 	const source = photo?.blob ?? photo?.thumb;
 	if (!photo || photo.deletedAt || !source) return;
 
-	const { text, suggestedName } = await recognizePhoto(source);
+	const { text, suggestedName } = await analyzePhoto(source);
 	if (!text) return;
 
 	const item = await db.items.get(itemId);
@@ -47,7 +48,7 @@ export async function ocrItem(itemId: UUID): Promise<OcrOutcome | null> {
 
 	const outcomes: OcrOutcome[] = [];
 	for (const photo of photos) {
-		outcomes.push(await recognizePhoto((photo.blob ?? photo.thumb)!));
+		outcomes.push(await analyzePhoto((photo.blob ?? photo.thumb)!));
 	}
 	const text = outcomes.map((o) => o.text).filter(Boolean).join('\n');
 	// merge candidates across photos, keeping ranking order and de-duping

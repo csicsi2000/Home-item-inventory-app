@@ -23,7 +23,7 @@ export function stopCamera(stream: MediaStream | null | undefined): void {
 	stream?.getTracks().forEach((t) => t.stop());
 }
 
-/** Grab the current video frame at full stream resolution. */
+/** Grab the current video frame at the preview stream resolution (fallback). */
 export function grabFrame(video: HTMLVideoElement): HTMLCanvasElement {
 	const canvas = document.createElement('canvas');
 	canvas.width = video.videoWidth;
@@ -32,6 +32,50 @@ export function grabFrame(video: HTMLVideoElement): HTMLCanvasElement {
 	if (!ctx) throw new Error('No 2d context');
 	ctx.drawImage(video, 0, 0);
 	return canvas;
+}
+
+// ImageCapture isn't in the standard TS DOM lib.
+interface ImageCaptureLike {
+	takePhoto(settings?: { imageWidth?: number; imageHeight?: number }): Promise<Blob>;
+	getPhotoCapabilities(): Promise<{
+		imageWidth?: { max?: number };
+		imageHeight?: { max?: number };
+	}>;
+}
+interface ImageCaptureCtor {
+	new (track: MediaStreamTrack): ImageCaptureLike;
+}
+
+/**
+ * Take a sharp still. Prefers the ImageCapture API (real photo pipeline —
+ * full sensor resolution + hardware autofocus, so it's crisp), and falls back
+ * to grabbing the preview frame where ImageCapture is unavailable (iOS Safari).
+ */
+export async function capturePhoto(
+	video: HTMLVideoElement,
+	stream: MediaStream
+): Promise<Blob | HTMLCanvasElement> {
+	const track = stream.getVideoTracks()[0];
+	const Ctor = (window as unknown as { ImageCapture?: ImageCaptureCtor }).ImageCapture;
+	if (track && Ctor) {
+		try {
+			const capture = new Ctor(track);
+			let settings: { imageWidth?: number; imageHeight?: number } | undefined;
+			try {
+				const caps = await capture.getPhotoCapabilities();
+				if (caps?.imageWidth?.max) {
+					settings = { imageWidth: caps.imageWidth.max, imageHeight: caps.imageHeight?.max };
+				}
+			} catch {
+				// no photo capabilities — take at default resolution
+			}
+			const blob = await capture.takePhoto(settings);
+			if (blob && blob.size > 0) return blob;
+		} catch (err) {
+			console.warn('takePhoto failed, using preview frame', err);
+		}
+	}
+	return grabFrame(video);
 }
 
 // These focus capabilities aren't in the standard TS DOM lib yet.
