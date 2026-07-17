@@ -107,6 +107,9 @@ export async function analyzeWithFlorence(blob: Blob): Promise<OcrOutcome> {
 	try {
 		const cap = (await runTask(image, image.size, '<CAPTION>', 128)) as Record<string, unknown>;
 		caption = cleanLine(String(cap['<CAPTION>'] ?? ''));
+			// Florence returns "unanswerable" for text-heavy images it can't caption —
+			// that's not a caption, so drop it rather than storing it as read text.
+			if (/^unanswerable\.?$/i.test(caption)) caption = '';
 	} catch {
 		// caption is optional
 	}
