@@ -1,3 +1,5 @@
+https://csicsi2000.github.io/Home-item-inventory-app/
+
 # Card Collection Scanner
 
 A local-first PWA for organizing and inventorying anything you collect — trading cards, electronics, hardware parts, whatever. Scan items with your phone camera; they're saved instantly, named automatically from the text printed on them, checked for duplicates, searchable, and (optionally) synced across your devices.
