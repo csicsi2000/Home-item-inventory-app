@@ -193,11 +193,14 @@
 				<div>
 					<Label>Smart AI naming <span class="text-muted-foreground">(experimental)</span></Label>
 					<p class="text-xs text-muted-foreground">
-						Uses the on-device Florence-2 model for more accurate reading and to describe
-						items without text. One-time model download (~a few hundred MB), then works offline.
-						{#if webgpuAvailable === false}
-							<span class="text-amber-600">Your device lacks WebGPU, so this stays on the standard reader.</span>
+						Names items even when they have no readable text, using an on-device model.
+						{#if webgpuAvailable === true}
+							Your device supports WebGPU, so it uses the higher-quality Florence-2 model.
+						{:else if webgpuAvailable === false}
+							Your device uses the lighter caption model (no WebGPU) — works on any phone, a bit
+							lower quality.
 						{/if}
+						One-time model download, then works offline.
 					</p>
 				</div>
 				<Switch
