@@ -11,9 +11,10 @@
 	import { auth, signInWithGoogle, signInWithMagicLink, signOut } from '$lib/sync/auth.svelte';
 	import { syncStatus, syncNow } from '$lib/sync/engine.svelte';
 	import { settings } from '$lib/state/settings.svelte';
-	import { db } from '$lib/db/schema';
+	import { buildBackup, parseBackup, importBackup, ImportError } from '$lib/db/backup';
 	import { toast } from 'svelte-sonner';
 	import DownloadIcon from '@lucide/svelte/icons/download';
+	import UploadIcon from '@lucide/svelte/icons/upload';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
 	import SunIcon from '@lucide/svelte/icons/sun';
@@ -88,17 +89,7 @@
 	}
 
 	async function exportJson() {
-		const [collections, items, photos] = await Promise.all([
-			db.collections.filter((c) => !c.deletedAt).toArray(),
-			db.items.filter((i) => !i.deletedAt).toArray(),
-			db.photos.filter((p) => !p.deletedAt).toArray()
-		]);
-		const payload = {
-			exportedAt: new Date().toISOString(),
-			collections,
-			items,
-			photos: photos.map(({ blob: _b, thumb: _t, ...meta }) => meta)
-		};
+		const payload = await buildBackup();
 		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
@@ -106,6 +97,50 @@
 		a.download = `collections-export-${new Date().toISOString().slice(0, 10)}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
+	}
+
+	let fileInput = $state<HTMLInputElement>();
+	let importing = $state(false);
+
+	function pickImportFile() {
+		fileInput?.click();
+	}
+
+	async function onImportFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // let the same file be re-selected later
+		if (!file || importing) return;
+
+		importing = true;
+		const id = toast.loading('Importing backup…');
+		try {
+			const payload = parseBackup(await file.text());
+			const res = await importBackup(payload);
+			const applied =
+				res.collections.applied + res.items.applied + res.photos.applied;
+			const skipped =
+				res.collections.skipped + res.items.skipped + res.photos.skipped;
+			toast.dismiss(id);
+			if (applied === 0) {
+				toast.info(
+					skipped ? 'Everything in that backup was already up to date' : 'Nothing to import'
+				);
+			} else {
+				toast.success(
+					`Imported ${res.collections.applied} collection${res.collections.applied === 1 ? '' : 's'} · ` +
+						`${res.items.applied} item${res.items.applied === 1 ? '' : 's'}` +
+						(skipped ? ` · ${skipped} already up to date` : '')
+				);
+				void syncNow();
+			}
+		} catch (err) {
+			toast.dismiss(id);
+			toast.error(err instanceof ImportError ? err.message : 'Import failed');
+			if (!(err instanceof ImportError)) console.error(err);
+		} finally {
+			importing = false;
+		}
 	}
 
 	const pct = (v: number) => `${Math.round(v * 100)}%`;
@@ -336,6 +371,17 @@
 					<DownloadIcon class="size-4" />
 					Export as JSON
 				</Button>
+				<Button variant="outline" onclick={pickImportFile} disabled={importing}>
+					<UploadIcon class="size-4" />
+					Import from JSON
+				</Button>
+				<input
+					bind:this={fileInput}
+					type="file"
+					accept="application/json,.json"
+					class="hidden"
+					onchange={onImportFile}
+				/>
 				<Button variant="outline" onclick={requestPersist} disabled={persisted === true}>
 					<ShieldCheckIcon class="size-4" />
 					{persisted ? 'Storage protected' : 'Protect local storage'}
@@ -343,6 +389,8 @@
 			</div>
 			<p class="text-xs text-muted-foreground">
 				The export contains collections and item details (photos stay in the app / cloud).
+				Import merges a backup into this device — newer entries win, so older backups never
+				overwrite fresher data, and imported changes sync to the cloud.
 				“Protect local storage” asks the browser not to evict your data under disk pressure.
 			</p>
 		</Card.Content>

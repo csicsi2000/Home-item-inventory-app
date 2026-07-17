@@ -2,7 +2,7 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
 	if (!navigator.mediaDevices?.getUserMedia) {
 		throw new Error('Camera not supported in this browser');
 	}
-	const stream = await navigator.mediaDevices.getUserMedia({
+	let stream = await navigator.mediaDevices.getUserMedia({
 		video: {
 			facingMode: 'environment',
 			width: { ideal: 1920 },
@@ -10,6 +10,7 @@ export async function startCamera(video: HTMLVideoElement): Promise<MediaStream>
 		},
 		audio: false
 	});
+	stream = await preferAutofocusCamera(stream);
 	video.srcObject = stream;
 	// iOS Safari: video must be inline + muted or it blacks out / goes fullscreen
 	video.muted = true;
@@ -88,19 +89,76 @@ function videoTrack(stream: MediaStream): MediaStreamTrack | undefined {
 	return stream.getVideoTracks()[0];
 }
 
+function trackSupportsContinuousFocus(track: MediaStreamTrack | undefined): boolean {
+	if (!track?.getCapabilities) return false;
+	const caps = track.getCapabilities() as MediaTrackCapabilities & FocusCapabilities;
+	return caps.focusMode?.includes('continuous') ?? false;
+}
+
+/**
+ * Multi-lens Android phones often resolve `facingMode: environment` to a
+ * fixed-focus (wide/macro) lens. If the granted track can't do continuous AF,
+ * probe the other rear cameras and switch to the first one that can.
+ */
+async function preferAutofocusCamera(stream: MediaStream): Promise<MediaStream> {
+	const track = videoTrack(stream);
+	if (trackSupportsContinuousFocus(track) || !navigator.mediaDevices.enumerateDevices) {
+		return stream;
+	}
+	try {
+		const currentId = track?.getSettings?.().deviceId;
+		const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+			(d) =>
+				d.kind === 'videoinput' &&
+				d.deviceId &&
+				d.deviceId !== currentId &&
+				!/front|user|selfie/i.test(d.label)
+		);
+		for (const device of devices) {
+			let candidate: MediaStream | null = null;
+			try {
+				candidate = await navigator.mediaDevices.getUserMedia({
+					video: {
+						deviceId: { exact: device.deviceId },
+						width: { ideal: 1920 },
+						height: { ideal: 1080 }
+					},
+					audio: false
+				});
+				if (trackSupportsContinuousFocus(videoTrack(candidate))) {
+					stopCamera(stream);
+					return candidate;
+				}
+				stopCamera(candidate);
+			} catch {
+				stopCamera(candidate);
+			}
+		}
+	} catch {
+		// enumeration failed — keep the original stream
+	}
+	return stream;
+}
+
 /** Ask the camera to keep autofocusing continuously (best-effort; Android Chrome supports it). */
 export async function enableAutofocus(stream: MediaStream): Promise<void> {
 	const track = videoTrack(stream);
 	if (!track?.getCapabilities) return;
 	const caps = track.getCapabilities() as MediaTrackCapabilities & FocusCapabilities;
-	if (caps.focusMode?.includes('continuous')) {
-		try {
-			await track.applyConstraints({
-				advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet]
-			});
-		} catch {
-			// ignore — not all devices honor this
-		}
+	if (!caps.focusMode?.includes('continuous')) return;
+	// Chrome versions differ on whether focusMode belongs top-level or in
+	// `advanced` — try both; whichever the device honors wins.
+	try {
+		await track.applyConstraints({ focusMode: 'continuous' } as MediaTrackConstraints);
+	} catch {
+		// fall through to the advanced form
+	}
+	try {
+		await track.applyConstraints({
+			advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet]
+		});
+	} catch {
+		// ignore — not all devices honor this
 	}
 }
 
@@ -117,14 +175,22 @@ export async function focusAt(stream: MediaStream, nx: number, ny: number): Prom
 	if (caps.pointsOfInterest) {
 		advanced.pointsOfInterest = [{ x: clamp01(nx), y: clamp01(ny) }];
 	}
+	// single-shot only — 'manual' with no focusDistance would lock the lens in place
 	if (caps.focusMode?.includes('single-shot')) advanced.focusMode = 'single-shot';
-	else if (caps.focusMode?.includes('manual')) advanced.focusMode = 'manual';
 	if (!Object.keys(advanced).length) return false;
 	try {
 		await track.applyConstraints({ advanced: [advanced as MediaTrackConstraintSet] });
 		return true;
 	} catch {
 		return false;
+	} finally {
+		// hand control back to continuous AF once the single-shot has converged,
+		// so one tap doesn't leave focus frozen for the rest of the session
+		if (advanced.focusMode) {
+			setTimeout(() => {
+				enableAutofocus(stream).catch(() => {});
+			}, 1500);
+		}
 	}
 }
 

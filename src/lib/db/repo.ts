@@ -11,7 +11,7 @@ export function onItemsChanged(fn: ItemsChangedListener): () => void {
 	itemListeners.add(fn);
 	return () => itemListeners.delete(fn);
 }
-function notifyItemsChanged(ids: UUID[]) {
+export function notifyItemsChanged(ids: UUID[]) {
 	for (const fn of itemListeners) fn(ids);
 }
 
