@@ -12,10 +12,12 @@
 create table public.collections (
   id uuid primary key,
   user_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  parent_id uuid,
   name text not null,
   icon text,
   description text,
   fields jsonb not null default '[]',
+  display jsonb,
   created_at timestamptz not null,
   updated_at timestamptz not null,
   server_updated_at timestamptz not null default now(),

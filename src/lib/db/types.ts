@@ -17,14 +17,30 @@ export interface CollectionField {
 	type: 'text' | 'number';
 }
 
+export type CollectionViewMode = 'grid' | 'list';
+
+/** Per-collection presentation settings (synced with the collection). */
+export interface CollectionDisplay {
+	view: CollectionViewMode;
+	/**
+	 * Short labels shown on each item in the collection view.
+	 * Built-in keys ('price', 'tags', …) or `cf:<fieldId>` for collection fields.
+	 */
+	labels: string[];
+}
+
 export interface Collection extends SyncMeta {
 	id: UUID;
 	name: string;
+	/** Parent collection for folder-style nesting; null → top level. */
+	parentId: UUID | null;
 	/** Emoji or lucide icon name shown on the dashboard card. */
 	icon: string | null;
 	description: string | null;
 	/** Field template applied to items in this collection (values live in item.customFields). */
 	fields: CollectionField[];
+	/** View mode + item labels for this collection. Null → defaults (grid, tags). */
+	display: CollectionDisplay | null;
 	createdAt: string;
 }
 

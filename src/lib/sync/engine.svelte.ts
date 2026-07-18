@@ -56,9 +56,11 @@ const collectionsSync: TableSync = {
 			row: {
 				id: c.id,
 				name: c.name,
+				parent_id: c.parentId ?? null,
 				icon: c.icon,
 				description: c.description,
 				fields: c.fields ?? [],
+				display: c.display ?? null,
 				created_at: c.createdAt,
 				updated_at: c.updatedAt,
 				deleted_at: c.deletedAt
@@ -78,9 +80,11 @@ const collectionsSync: TableSync = {
 		await applyWithLww<Collection>(db.collections, String(row.id), updatedAt, () => ({
 			id: String(row.id),
 			name: String(row.name ?? ''),
+			parentId: (row.parent_id as string | null) ?? null,
 			icon: (row.icon as string | null) ?? null,
 			description: (row.description as string | null) ?? null,
 			fields: (row.fields as Collection['fields'] | null) ?? [],
+			display: (row.display as Collection['display'] | null) ?? null,
 			createdAt: iso(row.created_at),
 			updatedAt,
 			deletedAt: isoOrNull(row.deleted_at),

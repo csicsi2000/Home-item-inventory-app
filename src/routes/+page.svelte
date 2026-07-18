@@ -9,19 +9,26 @@
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import { createCollection, deleteCollection } from '$lib/db/repo';
+	import { childrenOf, rollupCounts } from '$lib/tree';
 	import type { Collection } from '$lib/db/types';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MoreVerticalIcon from '@lucide/svelte/icons/more-vertical';
 	import PencilIcon from '@lucide/svelte/icons/pencil';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PackageOpenIcon from '@lucide/svelte/icons/package-open';
 
 	let dialogOpen = $state(false);
 	let editing = $state<Collection | null>(null);
 	let deleting = $state<Collection | null>(null);
 
-	const collections = $derived(collectionsLive.current);
-	const counts = $derived(itemCountsLive.current);
+	const allCollections = $derived(collectionsLive.current);
+	// dashboard shows top-level collections only; folders are entered to see their contents
+	const collections = $derived(childrenOf(allCollections, null));
+	const counts = $derived(rollupCounts(allCollections, itemCountsLive.current));
+	const subCounts = $derived(
+		Object.fromEntries(allCollections.map((c) => [c.id, childrenOf(allCollections, c.id).length]))
+	);
 
 	const starters = [
 		{ name: 'Trading cards', icon: '🃏' },
@@ -116,8 +123,14 @@
 					</Card.Header>
 					<Card.Content class="px-4">
 						<p class="truncate font-semibold">{collection.name}</p>
-						<div class="mt-1 flex items-center gap-2">
+						<div class="mt-1 flex flex-wrap items-center gap-1.5">
 							<Badge variant="secondary">{counts[collection.id] ?? 0} items</Badge>
+							{#if subCounts[collection.id]}
+								<Badge variant="outline" class="gap-1">
+									<FolderIcon class="size-3" />
+									{subCounts[collection.id]}
+								</Badge>
+							{/if}
 						</div>
 					</Card.Content>
 				</Card.Root>
@@ -133,8 +146,8 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>Delete “{deleting?.name}”?</AlertDialog.Title>
 			<AlertDialog.Description>
-				The collection and all {counts[deleting?.id ?? ''] ?? 0} items in it will be deleted on
-				every synced device.
+				The collection{subCounts[deleting?.id ?? ''] ? ', its subcollections,' : ''} and all
+				{counts[deleting?.id ?? ''] ?? 0} items in it will be deleted on every synced device.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>

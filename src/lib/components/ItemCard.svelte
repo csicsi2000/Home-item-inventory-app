@@ -9,16 +9,21 @@
 	let {
 		item,
 		thumb,
+		chips,
 		selectable = false,
 		selected = false,
 		onToggle
 	}: {
 		item: Item;
 		thumb: Blob | null | undefined;
+		/** Short label texts under the name; omit to fall back to the item's tags. */
+		chips?: string[];
 		selectable?: boolean;
 		selected?: boolean;
 		onToggle?: () => void;
 	} = $props();
+
+	const meta = $derived(chips ?? (item.tags.length ? [item.tags.map((t) => `#${t}`).join(' ')] : []));
 </script>
 
 {#snippet body()}
@@ -50,11 +55,9 @@
 	</div>
 	<div class="p-2.5">
 		<p class="truncate text-sm font-medium">{item.name || 'Untitled item'}</p>
-		{#if item.tags.length}
-			<p class="mt-0.5 truncate text-xs text-muted-foreground">
-				{item.tags.map((t) => `#${t}`).join(' ')}
-			</p>
-		{/if}
+		{#each meta as chip, i (i)}
+			<p class="mt-0.5 truncate text-xs text-muted-foreground">{chip}</p>
+		{/each}
 	</div>
 {/snippet}
 

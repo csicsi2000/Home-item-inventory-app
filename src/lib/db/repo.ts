@@ -1,5 +1,6 @@
 import { db } from './schema';
 import type { Collection, Item, ItemPhoto, ItemStatus, UUID } from './types';
+import { descendantIds } from '$lib/tree';
 
 export const now = () => new Date().toISOString();
 export const newId = () => crypto.randomUUID();
@@ -18,15 +19,18 @@ export function notifyItemsChanged(ids: UUID[]) {
 // ---------- collections ----------
 
 export async function createCollection(
-	data: Pick<Collection, 'name'> & Partial<Pick<Collection, 'icon' | 'description' | 'fields'>>
+	data: Pick<Collection, 'name'> &
+		Partial<Pick<Collection, 'parentId' | 'icon' | 'description' | 'fields' | 'display'>>
 ): Promise<Collection> {
 	const t = now();
 	const collection: Collection = {
 		id: newId(),
 		name: data.name,
+		parentId: data.parentId ?? null,
 		icon: data.icon ?? null,
 		description: data.description ?? null,
 		fields: data.fields ?? [],
+		display: data.display ?? null,
 		createdAt: t,
 		updatedAt: t,
 		deletedAt: null,
@@ -39,20 +43,31 @@ export async function createCollection(
 
 export async function updateCollection(
 	id: UUID,
-	patch: Partial<Pick<Collection, 'name' | 'icon' | 'description' | 'fields'>>
+	patch: Partial<Pick<Collection, 'name' | 'parentId' | 'icon' | 'description' | 'fields' | 'display'>>
 ): Promise<void> {
+	if (patch.parentId != null) {
+		// guard against moving a collection into itself or one of its own descendants
+		const all = await db.collections.filter((c) => !c.deletedAt).toArray();
+		if (descendantIds(all, id).has(patch.parentId)) {
+			throw new Error('Cannot move a collection into itself or its own subcollection.');
+		}
+	}
 	await db.collections.update(id, { ...patch, updatedAt: now(), dirty: 1 });
 	notifyItemsChanged([]);
 }
 
-/** Tombstones the collection and everything inside it. */
+/** Tombstones the collection, every subcollection beneath it, and all their items. */
 export async function deleteCollection(id: UUID): Promise<void> {
 	const t = now();
 	await db.transaction('rw', [db.collections, db.items, db.photos, db.embeddings], async () => {
-		const items = await db.items.where('collectionId').equals(id).toArray();
+		const all = await db.collections.filter((c) => !c.deletedAt).toArray();
+		const collectionIds = [...descendantIds(all, id)];
+		const items = await db.items.where('collectionId').anyOf(collectionIds).toArray();
 		const itemIds = items.filter((i) => !i.deletedAt).map((i) => i.id);
 		for (const itemId of itemIds) await tombstoneItem(itemId, t);
-		await db.collections.update(id, { deletedAt: t, updatedAt: t, dirty: 1 });
+		for (const cid of collectionIds) {
+			await db.collections.update(cid, { deletedAt: t, updatedAt: t, dirty: 1 });
+		}
 		notifyItemsChanged(itemIds);
 	});
 }

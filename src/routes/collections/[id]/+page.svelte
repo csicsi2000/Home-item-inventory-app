@@ -3,17 +3,30 @@
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
 	import { db } from '$lib/db/schema';
-	import { createItem, deleteItems } from '$lib/db/repo';
-	import type { Item, ItemStatus } from '$lib/db/types';
+	import { createItem, deleteItems, updateCollection } from '$lib/db/repo';
+	import type { CollectionViewMode, Item, ItemStatus } from '$lib/db/types';
 	import { live } from '$lib/state/live.svelte';
+	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import ItemCard from '$lib/components/ItemCard.svelte';
+	import ItemRow from '$lib/components/ItemRow.svelte';
+	import CollectionSummary from '$lib/components/CollectionSummary.svelte';
+	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+	import { collectionDisplay, itemChips, labelOptions } from '$lib/display';
+	import { summarizeItems } from '$lib/summary';
+	import { ancestorsOf, childrenOf, descendantIds, rollupCounts } from '$lib/tree';
+	import { settings } from '$lib/state/settings.svelte';
 	import { cn } from '$lib/utils.js';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import CameraIcon from '@lucide/svelte/icons/camera';
+	import FolderIcon from '@lucide/svelte/icons/folder';
+	import FolderPlusIcon from '@lucide/svelte/icons/folder-plus';
+	import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
+	import ListIcon from '@lucide/svelte/icons/list';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import CheckSquareIcon from '@lucide/svelte/icons/check-square';
@@ -25,6 +38,24 @@
 	const collection = $derived(
 		live(() => db.collections.get(page.params.id!), undefined, () => page.params.id)
 	);
+
+	// folder tree context
+	const ancestors = $derived(ancestorsOf(collectionsLive.current, collectionId));
+	const children = $derived(childrenOf(collectionsLive.current, collectionId));
+	const rolledCounts = $derived(rollupCounts(collectionsLive.current, itemCountsLive.current));
+
+	// items across this collection + every subcollection, for the rolled-up summary
+	const rollupIds = $derived([...descendantIds(collectionsLive.current, collectionId)]);
+	const rollupItems = $derived(
+		live<Item[]>(
+			() => db.items.where('collectionId').anyOf(rollupIds).filter((i) => !i.deletedAt).toArray(),
+			[],
+			() => rollupIds.join(',')
+		)
+	);
+	const summary = $derived(summarizeItems(rollupItems.current, settings.defaultCurrency));
+
+	let subDialogOpen = $state(false);
 	const items = $derived(
 		live<Item[]>(
 			() =>
@@ -56,6 +87,21 @@
 
 	let query = $state('');
 	let statusFilter = $state<ItemStatus | 'all'>('all');
+
+	// per-collection display settings (synced on the collection record)
+	const display = $derived(collectionDisplay(collection.current));
+	const displayOptions = $derived(labelOptions(collection.current));
+
+	function setView(view: CollectionViewMode) {
+		// snapshot: the live record's nested arrays are reactive proxies IndexedDB can't clone
+		void updateCollection(collectionId, { display: { ...$state.snapshot(display), view } });
+	}
+	function toggleLabel(key: string) {
+		const labels = display.labels.includes(key)
+			? display.labels.filter((l) => l !== key)
+			: [...display.labels, key];
+		void updateCollection(collectionId, { display: { view: display.view, labels } });
+	}
 
 	// bulk selection
 	let selecting = $state(false);
@@ -121,14 +167,36 @@
 <svelte:head><title>{collection.current?.name ?? 'Collection'}</title></svelte:head>
 
 <div class="mx-auto max-w-5xl px-4 py-6 md:px-8">
+	{#if ancestors.length}
+		<nav class="mb-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+			<a href="{base}/" class="hover:text-foreground">Collections</a>
+			{#each ancestors as a (a.id)}
+				<span>/</span>
+				<a href="{base}/collections/{a.id}" class="truncate hover:text-foreground">
+					{a.icon ?? '📁'} {a.name}
+				</a>
+			{/each}
+		</nav>
+	{/if}
 	<div class="mb-4 flex items-center gap-3">
-		<Button variant="ghost" size="icon" href="{base}/" aria-label="Back to collections">
+		<Button
+			variant="ghost"
+			size="icon"
+			href={ancestors.length
+				? `${base}/collections/${ancestors[ancestors.length - 1].id}`
+				: `${base}/`}
+			aria-label="Back"
+		>
 			<ArrowLeftIcon class="size-5" />
 		</Button>
 		<span class="text-2xl">{collection.current?.icon ?? '📦'}</span>
 		<div class="min-w-0 flex-1">
 			<h1 class="truncate text-xl font-bold tracking-tight">{collection.current?.name ?? '…'}</h1>
-			<p class="text-xs text-muted-foreground">{items.current.length} items</p>
+			<p class="text-xs text-muted-foreground">
+				{items.current.length} items{children.length
+				? ` · ${children.length} folder${children.length === 1 ? '' : 's'}`
+				: ''}
+			</p>
 		</div>
 		{#if selecting}
 			<Button variant="ghost" size="sm" onclick={exitSelect}>Cancel</Button>
@@ -144,6 +212,15 @@
 					<CheckSquareIcon class="size-5" />
 				</Button>
 			{/if}
+			<Button
+				variant="ghost"
+				size="icon"
+				onclick={() => (subDialogOpen = true)}
+				aria-label="New subcollection"
+				title="New subcollection"
+			>
+				<FolderPlusIcon class="size-5" />
+			</Button>
 			<Button variant="outline" size="sm" onclick={addManually}>
 				<PlusIcon class="size-4" />
 				<span class="hidden sm:inline">Add</span>
@@ -159,13 +236,41 @@
 		<p class="mb-4 text-sm text-muted-foreground">{collection.current.description}</p>
 	{/if}
 
+	{#if summary.items > 0}
+		<div class="mb-4">
+			<CollectionSummary {summary} rolledUp={children.length > 0} />
+		</div>
+	{/if}
+
+	{#if children.length}
+		<div class="mb-5">
+			<h2 class="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+				Subcollections
+			</h2>
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+				{#each children as child (child.id)}
+					<a
+						href="{base}/collections/{child.id}"
+						class="flex items-center gap-3 rounded-xl border bg-card px-3 py-3 transition-shadow hover:shadow-md"
+					>
+						<span class="text-2xl leading-none">{child.icon ?? '📁'}</span>
+						<div class="min-w-0">
+							<p class="truncate text-sm font-medium">{child.name}</p>
+							<p class="text-xs text-muted-foreground">{rolledCounts[child.id] ?? 0} items</p>
+						</div>
+					</a>
+				{/each}
+			</div>
+		</div>
+	{/if}
+
 	{#if items.current.length > 0}
 		<div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
 			<div class="relative flex-1">
 				<SearchIcon class="absolute top-2.5 left-3 size-4 text-muted-foreground" />
 				<Input bind:value={query} placeholder="Filter items…" class="pl-9" />
 			</div>
-			<div class="flex gap-1">
+			<div class="flex items-center gap-1">
 				{#each statusTabs as tab (tab.value)}
 					<button
 						type="button"
@@ -180,41 +285,108 @@
 						{tab.label}
 					</button>
 				{/each}
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="outline"
+								size="icon"
+								class="ml-1"
+								aria-label="View options"
+								title="View options"
+							>
+								{#if display.view === 'list'}
+									<ListIcon class="size-4" />
+								{:else}
+									<LayoutGridIcon class="size-4" />
+								{/if}
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content align="end" class="w-52">
+						<DropdownMenu.Label>View</DropdownMenu.Label>
+						<DropdownMenu.RadioGroup
+							value={display.view}
+							onValueChange={(v) => setView(v as CollectionViewMode)}
+						>
+							<DropdownMenu.RadioItem value="grid" closeOnSelect={false}>
+								<LayoutGridIcon class="size-4" />
+								Grid
+							</DropdownMenu.RadioItem>
+							<DropdownMenu.RadioItem value="list" closeOnSelect={false}>
+								<ListIcon class="size-4" />
+								List
+							</DropdownMenu.RadioItem>
+						</DropdownMenu.RadioGroup>
+						<DropdownMenu.Separator />
+						<DropdownMenu.Label>Item labels</DropdownMenu.Label>
+						{#each displayOptions as option (option.key)}
+							<DropdownMenu.CheckboxItem
+								checked={display.labels.includes(option.key)}
+								onCheckedChange={() => toggleLabel(option.key)}
+								closeOnSelect={false}
+							>
+								{option.name}
+							</DropdownMenu.CheckboxItem>
+						{/each}
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
 			</div>
 		</div>
 	{/if}
 
 	{#if items.current.length === 0}
-		<div class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
-			<CameraIcon class="size-10 text-muted-foreground" />
-			<div>
-				<p class="font-medium">Nothing here yet</p>
-				<p class="mt-1 text-sm text-muted-foreground">
-					Point your camera at an item to add it in one tap.
-				</p>
+		{#if children.length === 0}
+			<div
+				class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center"
+			>
+				<CameraIcon class="size-10 text-muted-foreground" />
+				<div>
+					<p class="font-medium">Nothing here yet</p>
+					<p class="mt-1 text-sm text-muted-foreground">
+						Point your camera at an item to add it in one tap.
+					</p>
+				</div>
+				<div class="flex gap-2">
+					<Button href="{base}/collections/{collectionId}/add">
+						<CameraIcon class="size-4" />
+						Scan an item
+					</Button>
+					<Button variant="outline" onclick={addManually}>Add manually</Button>
+				</div>
 			</div>
-			<div class="flex gap-2">
-				<Button href="{base}/collections/{collectionId}/add">
-					<CameraIcon class="size-4" />
-					Scan an item
-				</Button>
-				<Button variant="outline" onclick={addManually}>Add manually</Button>
-			</div>
-		</div>
+		{/if}
 	{:else if filtered.length === 0}
 		<p class="py-12 text-center text-sm text-muted-foreground">No items match your filter.</p>
 	{:else}
-		<div class="grid grid-cols-2 gap-3 pb-20 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-			{#each filtered as item (item.id)}
-				<ItemCard
-					{item}
-					thumb={thumbs.current[item.id]}
-					selectable={selecting}
-					selected={selected.has(item.id)}
-					onToggle={() => toggleSelect(item.id)}
-				/>
-			{/each}
-		</div>
+		{#if display.view === 'list'}
+			<div class="grid gap-2 pb-20">
+				{#each filtered as item (item.id)}
+					<ItemRow
+						{item}
+						thumb={thumbs.current[item.id]}
+						chips={itemChips(item, display.labels, collection.current, settings.defaultCurrency)}
+						selectable={selecting}
+						selected={selected.has(item.id)}
+						onToggle={() => toggleSelect(item.id)}
+					/>
+				{/each}
+			</div>
+		{:else}
+			<div class="grid grid-cols-2 gap-3 pb-20 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+				{#each filtered as item (item.id)}
+					<ItemCard
+						{item}
+						thumb={thumbs.current[item.id]}
+						chips={itemChips(item, display.labels, collection.current, settings.defaultCurrency)}
+						selectable={selecting}
+						selected={selected.has(item.id)}
+						onToggle={() => toggleSelect(item.id)}
+					/>
+				{/each}
+			</div>
+		{/if}
 		{#if statusFilter === 'all' && !query && !selecting}
 			<p class="mt-4 text-center text-xs text-muted-foreground">
 				<Badge variant="outline" class="mr-1">{filtered.reduce((n, i) => n + i.quantity, 0)}</Badge>
@@ -223,6 +395,8 @@
 		{/if}
 	{/if}
 </div>
+
+<CollectionDialog bind:open={subDialogOpen} parentId={collectionId} />
 
 {#if selecting}
 	<!-- bulk action bar -->
