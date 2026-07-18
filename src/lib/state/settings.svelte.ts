@@ -1,3 +1,5 @@
+import { detectDefaultCurrency } from '$lib/currency';
+
 const KEY = 'ccs-settings';
 
 interface StoredSettings {
@@ -13,6 +15,12 @@ interface StoredSettings {
 	autoDuplicateCheck: boolean;
 	/** use the Florence-2 VLM (WebGPU) for naming instead of Tesseract */
 	smartNaming: boolean;
+	/** look up scanned barcodes against free online product databases (opt-in) */
+	onlineBarcodeLookup: boolean;
+	/** ISO 4217 code pre-filled on new items' price fields */
+	defaultCurrency: string;
+	/** scan mode: accumulate several photos into one item until "Next item" */
+	multiPhotoScan: boolean;
 }
 
 const DEFAULTS: StoredSettings = {
@@ -21,7 +29,10 @@ const DEFAULTS: StoredSettings = {
 	phashMaxDistance: 10,
 	autoOcr: true,
 	autoDuplicateCheck: true,
-	smartNaming: false
+	smartNaming: false,
+	onlineBarcodeLookup: false,
+	defaultCurrency: detectDefaultCurrency(),
+	multiPhotoScan: false
 };
 
 function loadStored(): StoredSettings {
@@ -40,6 +51,9 @@ class Settings implements StoredSettings {
 	autoOcr = $state(DEFAULTS.autoOcr);
 	autoDuplicateCheck = $state(DEFAULTS.autoDuplicateCheck);
 	smartNaming = $state(DEFAULTS.smartNaming);
+	onlineBarcodeLookup = $state(DEFAULTS.onlineBarcodeLookup);
+	defaultCurrency = $state(DEFAULTS.defaultCurrency);
+	multiPhotoScan = $state(DEFAULTS.multiPhotoScan);
 
 	constructor() {
 		Object.assign(this, loadStored());
@@ -52,7 +66,10 @@ class Settings implements StoredSettings {
 			phashMaxDistance: this.phashMaxDistance,
 			autoOcr: this.autoOcr,
 			autoDuplicateCheck: this.autoDuplicateCheck,
-			smartNaming: this.smartNaming
+			smartNaming: this.smartNaming,
+			onlineBarcodeLookup: this.onlineBarcodeLookup,
+			defaultCurrency: this.defaultCurrency,
+			multiPhotoScan: this.multiPhotoScan
 		};
 		localStorage.setItem(KEY, JSON.stringify(data));
 	}

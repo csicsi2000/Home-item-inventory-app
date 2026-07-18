@@ -48,6 +48,8 @@ export interface Item extends SyncMeta {
 	acquisitionDate: string | null;
 	soldPrice: number | null;
 	soldDate: string | null;
+	/** ISO 4217 code for this item's prices (bought/sold). Null → app default. */
+	currency: string | null;
 	customFields: Record<string, string>;
 	createdAt: string;
 }

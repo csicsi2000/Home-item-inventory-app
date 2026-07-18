@@ -80,6 +80,18 @@ describe('repo', () => {
 		expect((await db.items.get(item.id))!.deletedAt).not.toBeNull();
 	});
 
+	it('stores a per-item currency and defaults it to null', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const withCur = await createItem({ collectionId: c.id, name: 'Vader', currency: 'CHF' });
+		const noCur = await createItem({ collectionId: c.id, name: 'Yoda' });
+
+		expect(withCur.currency).toBe('CHF');
+		expect(noCur.currency).toBeNull();
+
+		await updateItem(withCur.id, { currency: 'EUR' });
+		expect((await db.items.get(withCur.id))!.currency).toBe('EUR');
+	});
+
 	it('quantity bumps never drop below 1', async () => {
 		const c = await createCollection({ name: 'Cards' });
 		const item = await createItem({ collectionId: c.id, name: 'Vader', quantity: 2 });

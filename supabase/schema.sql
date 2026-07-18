@@ -38,6 +38,7 @@ create table public.items (
   acquisition_date date,
   sold_price numeric,
   sold_date date,
+  currency text,
   custom_fields jsonb not null default '{}',
   created_at timestamptz not null,
   updated_at timestamptz not null,

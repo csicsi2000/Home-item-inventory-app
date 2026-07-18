@@ -85,6 +85,7 @@ export async function createItem(data: NewItem): Promise<Item> {
 		acquisitionDate: data.acquisitionDate ?? null,
 		soldPrice: data.soldPrice ?? null,
 		soldDate: data.soldDate ?? null,
+		currency: data.currency ?? null,
 		customFields: data.customFields ?? {},
 		createdAt: t,
 		updatedAt: t,

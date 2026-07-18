@@ -28,7 +28,9 @@
 </svelte:head>
 
 <ModeWatcher />
-<Toaster position="top-center" />
+<!-- bottom-center keeps toasts clear of the scan screen's top overlays (barcode
+     badge); the mobile offset lifts them above the fixed bottom tab bar -->
+<Toaster position="bottom-center" mobileOffset={{ bottom: '5rem' }} />
 <DuplicateAlert />
 <AppShell>
 	{@render children()}

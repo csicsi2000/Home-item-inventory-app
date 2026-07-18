@@ -2,12 +2,15 @@
 	import { db } from '$lib/db/schema';
 	import { addPhoto, deletePhoto } from '$lib/db/repo';
 	import { processImage } from '$lib/scan/image';
-	import { runPostSavePipeline } from '$lib/ml/pipeline';
+	import { processQueue } from '$lib/ml/queue.svelte';
 	import { live } from '$lib/state/live.svelte';
 	import Thumb from './Thumb.svelte';
 	import PhotoViewer from './PhotoViewer.svelte';
+	import CameraCapture from './CameraCapture.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import PlusIcon from '@lucide/svelte/icons/plus';
+	import CameraIcon from '@lucide/svelte/icons/camera';
 	import XIcon from '@lucide/svelte/icons/x';
 	import StarIcon from '@lucide/svelte/icons/star';
 	import { toast } from 'svelte-sonner';
@@ -36,6 +39,8 @@
 	let busy = $state(false);
 	let viewerOpen = $state(false);
 	let viewerIndex = $state(0);
+	let cameraOpen = $state(false);
+	let cameraCount = $state(0);
 
 	// full-res where we have it, thumbnail otherwise — matches the display order
 	const viewerBlobs = $derived(photos.current.map((p) => p.blob ?? p.thumb));
@@ -52,18 +57,42 @@
 		if (!files.length) return;
 		busy = true;
 		try {
-			for (const file of files) {
-				const processed = await processImage(file);
-				const photo = await addPhoto(itemId, processed);
-				void runPostSavePipeline(itemId, photo.id);
-				onPhotoAdded?.(photo);
-			}
+			for (const file of files) await savePhoto(file);
 		} catch (err) {
 			console.error(err);
 			toast.error('Could not process that image');
 		} finally {
 			busy = false;
 		}
+	}
+
+	/** Process one source into a stored photo and queue background recognition. */
+	async function savePhoto(source: Blob | HTMLCanvasElement) {
+		const processed = await processImage(source);
+		const photo = await addPhoto(itemId, processed);
+		processQueue.enqueue(itemId, photo.id);
+		onPhotoAdded?.(photo);
+		return photo;
+	}
+
+	async function onCameraCapture(frame: Blob | HTMLCanvasElement) {
+		try {
+			await savePhoto(frame);
+			cameraCount += 1;
+			if (navigator.vibrate) navigator.vibrate(20);
+		} catch (err) {
+			console.error(err);
+			toast.error('Could not save that photo');
+		}
+	}
+
+	async function onCameraFiles(files: File[]) {
+		for (const file of files) await onCameraCapture(file);
+	}
+
+	function openCamera() {
+		cameraCount = 0;
+		cameraOpen = true;
 	}
 
 	async function makePrimary(photo: ItemPhoto) {
@@ -107,6 +136,15 @@
 	<Button
 		variant="outline"
 		class="size-28 shrink-0 flex-col gap-1 rounded-lg border-dashed sm:size-32"
+		onclick={openCamera}
+		disabled={busy}
+	>
+		<CameraIcon class="size-5" />
+		<span class="text-xs">Take photo</span>
+	</Button>
+	<Button
+		variant="outline"
+		class="size-28 shrink-0 flex-col gap-1 rounded-lg border-dashed sm:size-32"
 		onclick={() => fileInput?.click()}
 		disabled={busy}
 	>
@@ -124,3 +162,22 @@
 </div>
 
 <PhotoViewer bind:open={viewerOpen} bind:index={viewerIndex} blobs={viewerBlobs} />
+
+<Dialog.Root bind:open={cameraOpen}>
+	<Dialog.Content class="max-w-lg">
+		<Dialog.Header>
+			<Dialog.Title>Take photos</Dialog.Title>
+			<Dialog.Description>
+				{cameraCount
+					? `${cameraCount} photo${cameraCount === 1 ? '' : 's'} added — keep snapping or close when done.`
+					: 'Snap as many photos of this item as you like.'}
+			</Dialog.Description>
+		</Dialog.Header>
+		{#if cameraOpen}
+			<CameraCapture onCapture={onCameraCapture} onFiles={onCameraFiles} />
+		{/if}
+		<Dialog.Footer>
+			<Button variant="secondary" onclick={() => (cameraOpen = false)}>Done</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

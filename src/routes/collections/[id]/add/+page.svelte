@@ -5,14 +5,21 @@
 	import { live } from '$lib/state/live.svelte';
 	import { quickAddFromImage } from '$lib/scan/quickAdd';
 	import { startBarcodeScanner } from '$lib/scan/barcode';
-	import { bumpQuantity } from '$lib/db/repo';
+	import { processImage } from '$lib/scan/image';
+	import { processQueue } from '$lib/ml/queue.svelte';
+	import { settings } from '$lib/state/settings.svelte';
+	import { addPhoto, bumpQuantity, updateItem } from '$lib/db/repo';
 	import CameraCapture from '$lib/components/CameraCapture.svelte';
 	import Thumb from '$lib/components/Thumb.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
+	import { Switch } from '$lib/components/ui/switch';
+	import { Label } from '$lib/components/ui/label';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import BarcodeIcon from '@lucide/svelte/icons/barcode';
+	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { onDestroy } from 'svelte';
@@ -29,7 +36,19 @@
 	let pendingBarcode = $state<string | null>(null);
 	let stopScanner: (() => void) | null = null;
 
+	// multi-photo mode: several photos accumulate onto one item until "Next item"
+	let multiPhoto = $state(settings.multiPhotoScan);
+	let current = $state<{ item: Item; count: number } | null>(null);
+
 	onDestroy(() => stopScanner?.());
+
+	function toggleMultiPhoto(v: boolean) {
+		multiPhoto = v;
+		settings.multiPhotoScan = v;
+		settings.save();
+		// leaving multi mode finalizes whatever item we were building
+		if (!v) current = null;
+	}
 
 	function onVideoReady(video: HTMLVideoElement) {
 		stopScanner?.();
@@ -62,22 +81,46 @@
 		try {
 			const barcode = pendingBarcode;
 			pendingBarcode = null;
+
+			if (multiPhoto && current) {
+				// another photo for the item we're already building
+				const processed = await processImage(source);
+				const photo = await addPhoto(current.item.id, processed);
+				processQueue.enqueue(current.item.id, photo.id);
+				if (barcode) await updateItem(current.item.id, { barcode });
+				current = { item: current.item, count: current.count + 1 };
+				if (navigator.vibrate) navigator.vibrate(20);
+				return;
+			}
+
+			// start a new item
 			const { item, processed } = await quickAddFromImage(collectionId, source, { barcode });
 			added = [{ item, thumb: processed.thumb }, ...added].slice(0, 12);
 			if (navigator.vibrate) navigator.vibrate(30);
-			toast.success('Item added', {
-				description: 'Reading text & checking duplicates in the background…',
-				action: {
-					label: 'Edit details',
-					onClick: () => goto(`${base}/items/${item.id}`)
-				}
-			});
+
+			if (multiPhoto) {
+				current = { item, count: 1 };
+			} else {
+				toast.success('Item added', {
+					description: 'Reading text & checking duplicates in the background…',
+					action: {
+						label: 'Edit details',
+						onClick: () => goto(`${base}/items/${item.id}`)
+					}
+				});
+			}
 		} catch (err) {
 			console.error(err);
 			toast.error('Could not save that photo');
 		} finally {
 			busy = false;
 		}
+	}
+
+	function nextItem() {
+		current = null;
+		if (navigator.vibrate) navigator.vibrate(30);
+		toast.success('Ready for the next item');
 	}
 
 	async function handleFiles(files: File[]) {
@@ -102,7 +145,9 @@
 				Scan into {collection.current?.icon ?? ''} {collection.current?.name ?? '…'}
 			</h1>
 			<p class="text-xs text-muted-foreground">
-				Snap a photo — the item is saved instantly. Keep snapping.
+				{multiPhoto
+					? 'Snap several photos per item, then tap “Next item”.'
+					: 'Snap a photo — the item is saved instantly. Keep snapping.'}
 			</p>
 		</div>
 		<Button variant="outline" size="sm" href="{base}/collections/{collectionId}">
@@ -111,18 +156,53 @@
 		</Button>
 	</div>
 
+	<!-- scan mode + background-processing status -->
+	<div class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2">
+		<div class="flex items-center gap-2">
+			<Switch
+				id="multi-photo"
+				checked={multiPhoto}
+				onCheckedChange={toggleMultiPhoto}
+			/>
+			<Label for="multi-photo" class="text-sm">Multiple photos per item</Label>
+		</div>
+		{#if processQueue.pending}
+			<span class="flex items-center gap-1.5 text-xs text-muted-foreground">
+				<Loader2Icon class="size-3.5 animate-spin" />
+				Processing {processQueue.pending} in background
+			</span>
+		{/if}
+	</div>
+
 	<CameraCapture onCapture={handleSource} onFiles={handleFiles} {onVideoReady} {busy}>
 		{#snippet overlay()}
 			{#if pendingBarcode}
-				<div class="absolute inset-x-0 top-3 flex justify-center">
+				<div class="absolute inset-x-0 top-3 flex justify-center px-3">
 					<Badge class="gap-1.5 bg-emerald-600 text-white shadow">
 						<BarcodeIcon class="size-3.5" />
-						{pendingBarcode} — attached to next photo
+						{pendingBarcode} — {multiPhoto && current ? 'added to this item' : 'attached to next photo'}
 					</Badge>
 				</div>
 			{/if}
 		{/snippet}
 	</CameraCapture>
+
+	{#if multiPhoto}
+		<div class="mt-3 flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-2.5">
+			<p class="min-w-0 flex-1 text-sm">
+				{#if current}
+					Building an item — <span class="font-medium">{current.count} photo{current.count === 1 ? '' : 's'}</span>.
+					Tap the shutter for more.
+				{:else}
+					Next shutter press starts a new item.
+				{/if}
+			</p>
+			<Button size="sm" onclick={nextItem} disabled={!current}>
+				<ArrowRightIcon class="size-4" />
+				Next item
+			</Button>
+		</div>
+	{/if}
 
 	{#if added.length}
 		<div class="mt-4">

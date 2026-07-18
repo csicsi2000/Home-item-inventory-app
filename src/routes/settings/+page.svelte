@@ -6,6 +6,8 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Slider } from '$lib/components/ui/slider';
 	import { Separator } from '$lib/components/ui/separator';
+	import * as Select from '$lib/components/ui/select';
+	import { CURRENCY_OPTIONS } from '$lib/currency';
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { syncConfigured } from '$lib/sync/supabase';
 	import { auth, signInWithGoogle, signInWithMagicLink, signOut } from '$lib/sync/auth.svelte';
@@ -248,6 +250,23 @@
 			</div>
 			<div class="flex items-center justify-between gap-4">
 				<div>
+					<Label>Online barcode lookup <span class="text-muted-foreground">(sends barcode only)</span></Label>
+					<p class="text-xs text-muted-foreground">
+						When a barcode is scanned, look it up in free public product databases (Open Food
+						Facts, UPCitemdb) to pre-fill the name. Only the barcode number leaves your device,
+						and only for scanned barcodes. Best-effort — needs a connection and a listed product.
+					</p>
+				</div>
+				<Switch
+					checked={settings.onlineBarcodeLookup}
+					onCheckedChange={(v) => {
+						settings.onlineBarcodeLookup = v;
+						settings.save();
+					}}
+				/>
+			</div>
+			<div class="flex items-center justify-between gap-4">
+				<div>
 					<Label>Duplicate detection</Label>
 					<p class="text-xs text-muted-foreground">Warns when a new photo matches an existing item.</p>
 				</div>
@@ -331,6 +350,28 @@
 			<Card.Title>Appearance & app</Card.Title>
 		</Card.Header>
 		<Card.Content class="grid gap-4">
+			<div class="flex items-center justify-between gap-4">
+				<div>
+					<Label>Default currency</Label>
+					<p class="text-xs text-muted-foreground">Pre-filled on new items; change it per item as needed.</p>
+				</div>
+				<Select.Root
+					type="single"
+					value={settings.defaultCurrency}
+					onValueChange={(v) => {
+						if (!v) return;
+						settings.defaultCurrency = v;
+						settings.save();
+					}}
+				>
+					<Select.Trigger class="w-32">{settings.defaultCurrency}</Select.Trigger>
+					<Select.Content>
+						{#each CURRENCY_OPTIONS as opt (opt.code)}
+							<Select.Item value={opt.code} label={opt.label} />
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
 			<div class="flex items-center justify-between gap-4">
 				<Label>Theme</Label>
 				<div class="flex gap-1">

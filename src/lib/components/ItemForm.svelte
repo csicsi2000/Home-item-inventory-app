@@ -10,6 +10,8 @@
 	import { updateItem } from '$lib/db/repo';
 	import type { Item, ItemStatus } from '$lib/db/types';
 	import { collectionsLive } from '$lib/state/collections.svelte';
+	import { settings } from '$lib/state/settings.svelte';
+	import { CURRENCY_OPTIONS, currencySymbol } from '$lib/currency';
 	import { toast } from 'svelte-sonner';
 
 	let { item, autofocusName = false }: { item: Item; autofocusName?: boolean } = $props();
@@ -29,6 +31,7 @@
 	let acquisitionDate = $state(initial.acquisitionDate ?? '');
 	let soldPrice = $state(initial.soldPrice?.toString() ?? '');
 	let soldDate = $state(initial.soldDate ?? '');
+	let currency = $state(initial.currency ?? settings.defaultCurrency);
 	let collectionId = $state(initial.collectionId);
 	let saving = $state(false);
 
@@ -89,6 +92,7 @@
 				acquisitionDate: acquisitionDate || null,
 				soldPrice: status === 'sold' ? parseNum(soldPrice) : null,
 				soldDate: status === 'sold' ? soldDate || new Date().toISOString().slice(0, 10) : null,
+				currency: currency || null,
 				customFields: mergedCustomFields(),
 				collectionId
 			});
@@ -134,7 +138,7 @@
 	{#if status === 'sold'}
 		<div class="grid grid-cols-2 gap-3 rounded-lg border bg-muted/40 p-3">
 			<div class="grid gap-2">
-				<Label for="item-sold-price">Sold for</Label>
+				<Label for="item-sold-price">Sold for ({currencySymbol(currency)})</Label>
 				<Input id="item-sold-price" inputmode="decimal" bind:value={soldPrice} placeholder="0.00" />
 			</div>
 			<div class="grid gap-2">
@@ -156,10 +160,21 @@
 
 	<Separator />
 
-	<div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+	<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
 		<div class="grid gap-2">
 			<Label for="item-price">Bought for</Label>
 			<Input id="item-price" inputmode="decimal" bind:value={acquisitionPrice} placeholder="0.00" />
+		</div>
+		<div class="grid gap-2">
+			<Label>Currency</Label>
+			<Select.Root type="single" bind:value={currency}>
+				<Select.Trigger class="w-full">{currency}</Select.Trigger>
+				<Select.Content>
+					{#each CURRENCY_OPTIONS as opt (opt.code)}
+						<Select.Item value={opt.code} label={opt.label} />
+					{/each}
+				</Select.Content>
+			</Select.Root>
 		</div>
 		<div class="grid gap-2">
 			<Label for="item-date">Bought on</Label>
