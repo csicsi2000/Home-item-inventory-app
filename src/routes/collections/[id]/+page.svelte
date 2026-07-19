@@ -38,6 +38,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import UsersIcon from '@lucide/svelte/icons/users';
 	import LogOutIcon from '@lucide/svelte/icons/log-out';
+	import EllipsisVerticalIcon from '@lucide/svelte/icons/ellipsis-vertical';
 	import { toast } from 'svelte-sonner';
 
 	const collectionId = $derived(page.params.id!);
@@ -75,6 +76,8 @@
 	const hasDirectGrant = $derived(
 		shareGrantsLive.current.some((g) => g.collectionId === collectionId)
 	);
+	const canShare = $derived(isOwner && !!auth.session);
+	const canLeave = $derived(isForeign && hasDirectGrant);
 	let shareOpen = $state(false);
 	let confirmingLeave = $state(false);
 
@@ -239,58 +242,122 @@
 		{#if selecting}
 			<Button variant="ghost" size="sm" onclick={exitSelect}>Cancel</Button>
 		{:else}
-			{#if isOwner && auth.session}
-				<Button
-					variant="ghost"
-					size="icon"
-					onclick={() => (shareOpen = true)}
-					aria-label="Share collection"
-					title="Share collection"
-				>
-					<UsersIcon class="size-5" />
-				</Button>
-			{/if}
-			{#if isForeign && hasDirectGrant}
-				<Button
-					variant="ghost"
-					size="icon"
-					onclick={() => (confirmingLeave = true)}
-					aria-label="Leave shared collection"
-					title="Leave shared collection"
-				>
-					<LogOutIcon class="size-5" />
-				</Button>
-			{/if}
-			{#if writable}
-				{#if items.current.length > 0}
-					<Button
-						variant="ghost"
-						size="icon"
-						onclick={() => (selecting = true)}
-						aria-label="Select items"
-						title="Select items"
-					>
-						<CheckSquareIcon class="size-5" />
+			<div class="flex items-center gap-1">
+				<!-- primary action, always visible -->
+				{#if writable}
+					<Button size="sm" href="{base}/collections/{collectionId}/add">
+						<CameraIcon class="size-4" />
+						Scan
 					</Button>
 				{/if}
-				<Button
-					variant="ghost"
-					size="icon"
-					onclick={() => (subDialogOpen = true)}
-					aria-label="New subcollection"
-					title="New subcollection"
-				>
-					<FolderPlusIcon class="size-5" />
-				</Button>
-				<Button variant="outline" size="sm" onclick={addManually}>
-					<PlusIcon class="size-4" />
-					<span class="hidden sm:inline">Add</span>
-				</Button>
-				<Button size="sm" href="{base}/collections/{collectionId}/add">
-					<CameraIcon class="size-4" />
-					Scan
-				</Button>
-			{/if}
+
+				<!-- secondary actions: inline icon buttons on ≥sm -->
+				<div class="hidden items-center gap-1 sm:flex">
+					{#if canShare}
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={() => (shareOpen = true)}
+							aria-label="Share collection"
+							title="Share collection"
+						>
+							<UsersIcon class="size-5" />
+						</Button>
+					{/if}
+					{#if canLeave}
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={() => (confirmingLeave = true)}
+							aria-label="Leave shared collection"
+							title="Leave shared collection"
+						>
+							<LogOutIcon class="size-5" />
+						</Button>
+					{/if}
+					{#if writable}
+						{#if items.current.length > 0}
+							<Button
+								variant="ghost"
+								size="icon"
+								onclick={() => (selecting = true)}
+								aria-label="Select items"
+								title="Select items"
+							>
+								<CheckSquareIcon class="size-5" />
+							</Button>
+						{/if}
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={() => (subDialogOpen = true)}
+							aria-label="New subcollection"
+							title="New subcollection"
+						>
+							<FolderPlusIcon class="size-5" />
+						</Button>
+						<Button
+							variant="ghost"
+							size="icon"
+							onclick={addManually}
+							aria-label="Add manually"
+							title="Add manually"
+						>
+							<PlusIcon class="size-5" />
+						</Button>
+					{/if}
+				</div>
+
+				<!-- secondary actions: overflow menu on mobile -->
+				{#if canShare || canLeave || writable}
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="ghost"
+									size="icon"
+									class="sm:hidden"
+									aria-label="More actions"
+									title="More actions"
+								>
+									<EllipsisVerticalIcon class="size-5" />
+								</Button>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end" class="w-52">
+							{#if writable}
+								<DropdownMenu.Item onSelect={addManually}>
+									<PlusIcon class="size-4" />
+									Add manually
+								</DropdownMenu.Item>
+								<DropdownMenu.Item onSelect={() => (subDialogOpen = true)}>
+									<FolderPlusIcon class="size-4" />
+									New subcollection
+								</DropdownMenu.Item>
+								{#if items.current.length > 0}
+									<DropdownMenu.Item onSelect={() => (selecting = true)}>
+										<CheckSquareIcon class="size-4" />
+										Select items
+									</DropdownMenu.Item>
+								{/if}
+							{/if}
+							{#if canShare}
+								<DropdownMenu.Item onSelect={() => (shareOpen = true)}>
+									<UsersIcon class="size-4" />
+									Share
+								</DropdownMenu.Item>
+							{/if}
+							{#if canLeave}
+								<DropdownMenu.Item variant="destructive" onSelect={() => (confirmingLeave = true)}>
+									<LogOutIcon class="size-4" />
+									Leave collection
+								</DropdownMenu.Item>
+							{/if}
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				{/if}
+			</div>
 		{/if}
 	</div>
 
