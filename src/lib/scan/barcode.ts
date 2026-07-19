@@ -70,6 +70,11 @@ function getReader(): Promise<FrameReader> {
 	return readerPromise;
 }
 
+/** Prepare the barcode reader up front so its wasm (if any) is fetched + cached. */
+export async function warmupBarcode(): Promise<void> {
+	await getReader();
+}
+
 /**
  * Scan the live video at ~4 fps and report hits. Returns a stop function.
  * The same barcode is only reported once until a different one is seen.

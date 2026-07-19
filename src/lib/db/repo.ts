@@ -147,6 +147,54 @@ export async function moveItem(id: UUID, collectionId: UUID): Promise<void> {
 	await updateItem(id, { collectionId });
 }
 
+/** Move many items into another collection in one transaction. */
+export async function moveItems(ids: UUID[], collectionId: UUID): Promise<void> {
+	if (!ids.length) return;
+	const t = now();
+	await db.items.where('id').anyOf(ids).modify((item) => {
+		item.collectionId = collectionId;
+		item.updatedAt = t;
+		item.dirty = 1;
+	});
+	notifyItemsChanged(ids);
+}
+
+/** Set the status on many items at once, mirroring markStatus' sold-date handling. */
+export async function setItemsStatus(ids: UUID[], status: ItemStatus): Promise<void> {
+	if (!ids.length) return;
+	const t = now();
+	const soldDate = t.slice(0, 10);
+	await db.items.where('id').anyOf(ids).modify((item) => {
+		if (status === 'sold') {
+			// keep an existing sold date; only stamp one if the item lacks it
+			item.soldDate = item.soldDate ?? soldDate;
+		} else {
+			item.soldPrice = null;
+			item.soldDate = null;
+		}
+		item.status = status;
+		item.updatedAt = t;
+		item.dirty = 1;
+	});
+	notifyItemsChanged(ids);
+}
+
+/** Add a tag to many items, skipping any that already carry it. */
+export async function addTagToItems(ids: UUID[], tag: string): Promise<void> {
+	const clean = tag.trim();
+	if (!ids.length || !clean) return;
+	const t = now();
+	const changed: UUID[] = [];
+	await db.items.where('id').anyOf(ids).modify((item) => {
+		if (item.tags.includes(clean)) return;
+		item.tags = [...item.tags, clean];
+		item.updatedAt = t;
+		item.dirty = 1;
+		changed.push(item.id);
+	});
+	if (changed.length) notifyItemsChanged(changed);
+}
+
 export async function bumpQuantity(id: UUID, delta = 1): Promise<void> {
 	const item = await db.items.get(id);
 	if (!item) return;

@@ -69,11 +69,15 @@ export interface SearchHit {
 
 export async function searchItems(
 	query: string,
-	opts: { collectionId?: UUID; limit?: number } = {}
+	opts: { collectionId?: UUID; collectionIds?: Set<UUID>; limit?: number } = {}
 ): Promise<SearchHit[]> {
 	const ms = await ensureIndex();
 	const results = ms.search(query, {
-		filter: opts.collectionId ? (r) => r.collectionId === opts.collectionId : undefined
+		filter: (r) => {
+			if (opts.collectionId && r.collectionId !== opts.collectionId) return false;
+			if (opts.collectionIds && !opts.collectionIds.has(r.collectionId as UUID)) return false;
+			return true;
+		}
 	});
 	const hits: SearchHit[] = [];
 	for (const result of results.slice(0, opts.limit ?? 50)) {

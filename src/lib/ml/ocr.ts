@@ -45,6 +45,15 @@ function scheduleIdleTerminate() {
 	}, IDLE_TERMINATE_MS);
 }
 
+/**
+ * Load the OCR worker so its assets are fetched (and service-worker cached) up
+ * front, then schedule it to free its memory. Used by the "download models" flow.
+ */
+export async function warmupOcr(): Promise<void> {
+	await getWorker();
+	scheduleIdleTerminate();
+}
+
 export interface OcrOutcome {
 	/** Cleaned multi-line text found on the item. */
 	text: string;

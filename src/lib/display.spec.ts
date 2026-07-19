@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { collectionDisplay, itemChips, labelOptions } from './display';
-import type { Collection, Item } from './db/types';
+import { collectionDisplay, DEFAULT_SORT, itemChips, labelOptions, sortItems } from './display';
+import type { Collection, CollectionSort, Item } from './db/types';
 
 const collection: Collection = {
 	id: 'c1',
@@ -40,14 +40,68 @@ const item: Item = {
 };
 
 describe('collectionDisplay', () => {
-	it('falls back to grid + tags when nothing is configured', () => {
-		expect(collectionDisplay(collection)).toEqual({ view: 'grid', labels: ['tags'] });
-		expect(collectionDisplay(undefined)).toEqual({ view: 'grid', labels: ['tags'] });
+	it('falls back to grid + tags + newest-first when nothing is configured', () => {
+		expect(collectionDisplay(collection)).toEqual({
+			view: 'grid',
+			labels: ['tags'],
+			sort: DEFAULT_SORT
+		});
+		expect(collectionDisplay(undefined)).toEqual({
+			view: 'grid',
+			labels: ['tags'],
+			sort: DEFAULT_SORT
+		});
 	});
 
-	it('returns the stored settings when present', () => {
+	it('fills the default sort for legacy display objects that lack it', () => {
 		const c = { ...collection, display: { view: 'list' as const, labels: ['price'] } };
-		expect(collectionDisplay(c)).toEqual({ view: 'list', labels: ['price'] });
+		expect(collectionDisplay(c)).toEqual({ view: 'list', labels: ['price'], sort: DEFAULT_SORT });
+	});
+
+	it('returns the stored sort when present', () => {
+		const sort: CollectionSort = { key: 'name', dir: 'asc' };
+		const c = { ...collection, display: { view: 'grid' as const, labels: ['tags'], sort } };
+		expect(collectionDisplay(c).sort).toEqual(sort);
+	});
+});
+
+describe('sortItems', () => {
+	const make = (over: Partial<Item>): Item => ({ ...item, ...over });
+	const a = make({ id: 'a', name: 'Alpha', quantity: 5, acquisitionPrice: 30, createdAt: '2026-01-01T00:00:00Z' });
+	const b = make({ id: 'b', name: 'bravo', quantity: 1, acquisitionPrice: 10, createdAt: '2026-03-01T00:00:00Z' });
+	const c = make({ id: 'c', name: 'Charlie', quantity: 9, acquisitionPrice: null, createdAt: '2026-02-01T00:00:00Z' });
+	const items = [a, b, c];
+
+	it('does not mutate the input array', () => {
+		const copy = [...items];
+		sortItems(items, { key: 'name', dir: 'asc' });
+		expect(items).toEqual(copy);
+	});
+
+	it('sorts by name case-insensitively, both directions', () => {
+		expect(sortItems(items, { key: 'name', dir: 'asc' }).map((i) => i.id)).toEqual(['a', 'b', 'c']);
+		expect(sortItems(items, { key: 'name', dir: 'desc' }).map((i) => i.id)).toEqual(['c', 'b', 'a']);
+	});
+
+	it('sorts by quantity, both directions', () => {
+		expect(sortItems(items, { key: 'quantity', dir: 'asc' }).map((i) => i.id)).toEqual(['b', 'a', 'c']);
+		expect(sortItems(items, { key: 'quantity', dir: 'desc' }).map((i) => i.id)).toEqual(['c', 'a', 'b']);
+	});
+
+	it('sorts by date added, both directions', () => {
+		expect(sortItems(items, { key: 'createdAt', dir: 'asc' }).map((i) => i.id)).toEqual(['a', 'c', 'b']);
+		expect(sortItems(items, { key: 'createdAt', dir: 'desc' }).map((i) => i.id)).toEqual(['b', 'c', 'a']);
+	});
+
+	it('always sorts null prices last, in both directions', () => {
+		expect(sortItems(items, { key: 'price', dir: 'asc' }).map((i) => i.id)).toEqual(['b', 'a', 'c']);
+		expect(sortItems(items, { key: 'price', dir: 'desc' }).map((i) => i.id)).toEqual(['a', 'b', 'c']);
+	});
+
+	it('breaks ties by newest first', () => {
+		const x = make({ id: 'x', name: 'Same', quantity: 2, createdAt: '2026-01-01T00:00:00Z' });
+		const y = make({ id: 'y', name: 'Same', quantity: 2, createdAt: '2026-05-01T00:00:00Z' });
+		expect(sortItems([x, y], { key: 'name', dir: 'asc' }).map((i) => i.id)).toEqual(['y', 'x']);
 	});
 });
 

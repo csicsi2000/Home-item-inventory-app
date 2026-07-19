@@ -5,6 +5,7 @@
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
+	import ChartColumnIcon from '@lucide/svelte/icons/chart-column';
 	import { cn } from '$lib/utils.js';
 	import SyncStatusBadge from './SyncStatusBadge.svelte';
 
@@ -13,6 +14,7 @@
 	const tabs = [
 		{ href: `${base}/`, label: 'Collections', icon: LayersIcon, exact: false },
 		{ href: `${base}/search`, label: 'Search', icon: SearchIcon, exact: true },
+		{ href: `${base}/stats`, label: 'Stats', icon: ChartColumnIcon, exact: true },
 		{ href: `${base}/settings`, label: 'Settings', icon: SettingsIcon, exact: true }
 	];
 

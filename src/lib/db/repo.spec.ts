@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { db } from './schema';
 import {
 	addPhoto,
+	addTagToItems,
 	bumpQuantity,
 	createCollection,
 	createItem,
@@ -10,8 +11,11 @@ import {
 	deleteItem,
 	deletePhoto,
 	markStatus,
+	moveItems,
+	onItemsChanged,
 	primaryPhoto,
 	purgeTombstones,
+	setItemsStatus,
 	updateItem
 } from './repo';
 
@@ -130,6 +134,60 @@ describe('repo', () => {
 		await deletePhoto(p1.id);
 		const promoted = await primaryPhoto(item.id);
 		expect(promoted?.id).toBe(p2.id);
+	});
+
+	it('moveItems re-parents every item, bumping updatedAt and dirty', async () => {
+		const a = await createCollection({ name: 'A' });
+		const b = await createCollection({ name: 'B' });
+		const i1 = await createItem({ collectionId: a.id, name: 'one' });
+		const i2 = await createItem({ collectionId: a.id, name: 'two' });
+		await db.items.where('id').anyOf([i1.id, i2.id]).modify({ dirty: 0 });
+
+		await new Promise((r) => setTimeout(r, 5));
+		await moveItems([i1.id, i2.id], b.id);
+
+		const moved = await db.items.where('collectionId').equals(b.id).toArray();
+		expect(moved.map((i) => i.name).sort()).toEqual(['one', 'two']);
+		expect(moved.every((i) => i.dirty === 1)).toBe(true);
+		expect(moved.every((i) => i.updatedAt > i1.updatedAt)).toBe(true);
+	});
+
+	it('setItemsStatus stamps a sold date and clears it when un-sold', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const i1 = await createItem({ collectionId: c.id, name: 'a' });
+		const i2 = await createItem({ collectionId: c.id, name: 'b' });
+
+		await setItemsStatus([i1.id, i2.id], 'sold');
+		let rows = await db.items.bulkGet([i1.id, i2.id]);
+		expect(rows.every((r) => r!.status === 'sold')).toBe(true);
+		expect(rows.every((r) => /^\d{4}-\d{2}-\d{2}$/.test(r!.soldDate ?? ''))).toBe(true);
+
+		await setItemsStatus([i1.id, i2.id], 'owned');
+		rows = await db.items.bulkGet([i1.id, i2.id]);
+		expect(rows.every((r) => r!.status === 'owned' && r!.soldDate === null)).toBe(true);
+	});
+
+	it('addTagToItems de-dupes and only touches items that changed', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const tagged = await createItem({ collectionId: c.id, name: 'a', tags: ['rare'] });
+		const plain = await createItem({ collectionId: c.id, name: 'b' });
+
+		const notified: string[][] = [];
+		const off = onItemsChanged((ids) => notified.push(ids));
+		await addTagToItems([tagged.id, plain.id], ' rare ');
+		off();
+
+		expect((await db.items.get(tagged.id))!.tags).toEqual(['rare']); // unchanged, no dupe
+		expect((await db.items.get(plain.id))!.tags).toEqual(['rare']);
+		// only the item that actually changed is reported
+		expect(notified).toEqual([[plain.id]]);
+	});
+
+	it('addTagToItems ignores blank tags', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const i1 = await createItem({ collectionId: c.id, name: 'a' });
+		await addTagToItems([i1.id], '   ');
+		expect((await db.items.get(i1.id))!.tags).toEqual([]);
 	});
 
 	it('purges only old, already-pushed tombstones', async () => {
