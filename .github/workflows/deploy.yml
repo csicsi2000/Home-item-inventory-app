@@ -33,7 +33,7 @@ jobs:
           BASE_PATH: /${{ github.event.repository.name }}
           PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
           PUBLIC_SUPABASE_ANON_KEY: ${{ vars.PUBLIC_SUPABASE_ANON_KEY }}
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: build
           # Free-tier storage: expire the Pages artifact quickly after deploy.
