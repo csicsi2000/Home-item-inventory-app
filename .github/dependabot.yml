@@ -1,0 +1,53 @@
+# Dependabot configuration
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# `cooldown` makes Dependabot wait after a version is published before opening a
+# PR for it. This is the "let updates soak" defense against supply-chain attacks:
+# a freshly compromised release is usually caught and yanked within days, so we
+# only adopt versions that have survived in the wild for a while.
+version: 2
+
+updates:
+  # ---- npm (application dependencies) ----
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Zurich"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    # Soak times before an update is proposed. Bigger version jumps wait longer.
+    cooldown:
+      default-days: 7
+      semver-patch-days: 7
+      semver-minor-days: 14
+      semver-major-days: 30
+    # Reduce PR noise: bundle low-risk patch/minor bumps into a single PR,
+    # keep majors as individual PRs so breaking changes get reviewed on their own.
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---- GitHub Actions used in workflows ----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Zurich"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        update-types:
+          - "minor"
+          - "patch"
