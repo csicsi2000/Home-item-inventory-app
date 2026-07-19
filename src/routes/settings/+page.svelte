@@ -6,6 +6,7 @@
 	import { Switch } from '$lib/components/ui/switch';
 	import { Slider } from '$lib/components/ui/slider';
 	import { Separator } from '$lib/components/ui/separator';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as Select from '$lib/components/ui/select';
 	import { CURRENCY_OPTIONS } from '$lib/currency';
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
@@ -224,6 +225,8 @@
 				{#if !syncConfigured}
 					This build has no Supabase project configured — everything stays on this device. Add
 					PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_ANON_KEY to enable cloud sync.
+				{:else if !auth.ready}
+					Checking your sign-in status…
 				{:else if auth.session}
 					Signed in as {auth.session.user.email}. Your collections sync to every device using this
 					account.
@@ -235,7 +238,10 @@
 		</Card.Header>
 		{#if syncConfigured}
 			<Card.Content class="grid gap-4">
-				{#if auth.session}
+				{#if !auth.ready}
+					<!-- hold until the session resolves so the card doesn't flip signed-out→in -->
+					<Skeleton class="h-9 w-full sm:max-w-sm" />
+				{:else if auth.session}
 					<div class="flex flex-wrap items-center gap-3">
 						<SyncStatusBadge />
 						{#if syncStatus.lastSyncAt}

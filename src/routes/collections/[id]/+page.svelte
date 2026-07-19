@@ -136,6 +136,12 @@
 		)
 	);
 
+	// The summary (rolled-up query), the toolbar and the item grid come from
+	// separate live queries that resolve at slightly different times. Hold them
+	// all behind one flag so they reveal together instead of shoving each other
+	// down the page in two or three separate reflows.
+	const contentLoaded = $derived(items.loaded && rollupItems.loaded);
+
 	let query = $state('');
 	let statusFilter = $state<ItemStatus | 'all'>('all');
 	// session-only facet filters (not persisted)
@@ -515,13 +521,13 @@
 		<p class="mb-4 text-sm text-muted-foreground">{collection.current.description}</p>
 	{/if}
 
-	{#if summary.items > 0}
+	{#if contentLoaded && summary.items > 0}
 		<div class="mb-4">
 			<CollectionSummary {summary} rolledUp={children.length > 0} />
 		</div>
 	{/if}
 
-	{#if children.length}
+	{#if contentLoaded && children.length}
 		<div class="mb-5">
 			<h2 class="mb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
 				Subcollections
@@ -543,7 +549,7 @@
 		</div>
 	{/if}
 
-	{#if items.current.length > 0}
+	{#if contentLoaded && items.current.length > 0}
 		<div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
 			<div class="relative flex-1">
 				<SearchIcon class="absolute top-2.5 left-3 size-4 text-muted-foreground" />
@@ -747,7 +753,7 @@
 		</div>
 	{/if}
 
-	{#if !items.loaded}
+	{#if !contentLoaded}
 		<ItemGridSkeleton view={display.view} />
 	{:else if items.current.length === 0}
 		{#if children.length === 0}

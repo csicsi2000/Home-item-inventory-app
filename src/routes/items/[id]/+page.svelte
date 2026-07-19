@@ -8,6 +8,7 @@
 	import ItemForm from '$lib/components/ItemForm.svelte';
 	import PhotoStrip from '$lib/components/PhotoStrip.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import { Skeleton } from '$lib/components/ui/skeleton';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
@@ -170,7 +171,26 @@
 			</fieldset>
 		{/key}
 	{:else if item.current === undefined}
-		<p class="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+		<!-- mirrors the header + photo strip + form so nothing jumps when the item lands -->
+		<div aria-hidden="true">
+			<div class="mb-4 flex items-center gap-3">
+				<Skeleton class="size-9 rounded-md" />
+				<Skeleton class="h-6 flex-1 max-w-[16rem]" />
+			</div>
+			<div class="mb-6 flex gap-2">
+				{#each Array(3) as _, i (i)}
+					<Skeleton class="size-28 shrink-0 rounded-lg sm:size-32" />
+				{/each}
+			</div>
+			<div class="grid gap-4">
+				{#each Array(5) as _, i (i)}
+					<div>
+						<Skeleton class="h-3 w-24" />
+						<Skeleton class="mt-2 h-9 w-full" />
+					</div>
+				{/each}
+			</div>
+		</div>
 	{:else}
 		<div class="py-16 text-center">
 			<p class="font-medium">Item not found</p>
