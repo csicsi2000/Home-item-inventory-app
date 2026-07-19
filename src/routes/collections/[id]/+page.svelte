@@ -12,6 +12,7 @@
 	import CollectionSummary from '$lib/components/CollectionSummary.svelte';
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
 	import ShareDialog from '$lib/components/ShareDialog.svelte';
+	import ItemGridSkeleton from '$lib/components/ItemGridSkeleton.svelte';
 	import { canWrite, collectionRole, shareGrantsLive } from '$lib/state/access.svelte';
 	import { leaveShare, myUserId } from '$lib/sync/shares';
 	import { auth } from '$lib/sync/auth.svelte';
@@ -224,7 +225,7 @@
 		<div class="min-w-0 flex-1">
 			<h1 class="truncate text-xl font-bold tracking-tight">{collection.current?.name ?? '…'}</h1>
 			<p class="flex items-center gap-2 text-xs text-muted-foreground">
-				{items.current.length} items{children.length
+				{items.loaded ? `${items.current.length} items` : '…'}{children.length
 				? ` · ${children.length} folder${children.length === 1 ? '' : 's'}`
 				: ''}
 				{#if isForeign}
@@ -397,7 +398,9 @@
 		</div>
 	{/if}
 
-	{#if items.current.length === 0}
+	{#if !items.loaded}
+		<ItemGridSkeleton view={display.view} />
+	{:else if items.current.length === 0}
 		{#if children.length === 0}
 			<div
 				class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center"
