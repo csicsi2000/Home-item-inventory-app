@@ -19,6 +19,14 @@ export interface CollectionField {
 
 export type CollectionViewMode = 'grid' | 'list';
 
+export type SortKey = 'createdAt' | 'name' | 'price' | 'quantity';
+
+/** How items are ordered in the collection view. */
+export interface CollectionSort {
+	key: SortKey;
+	dir: 'asc' | 'desc';
+}
+
 /** Per-collection presentation settings (synced with the collection). */
 export interface CollectionDisplay {
 	view: CollectionViewMode;
@@ -27,6 +35,8 @@ export interface CollectionDisplay {
 	 * Built-in keys ('price', 'tags', …) or `cf:<fieldId>` for collection fields.
 	 */
 	labels: string[];
+	/** Item sort order. Absent → newest-first (the historical default). */
+	sort?: CollectionSort;
 }
 
 export type ShareRole = 'read' | 'write' | 'owner';

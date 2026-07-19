@@ -8,8 +8,12 @@
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
 	import CollectionGridSkeleton from '$lib/components/CollectionGridSkeleton.svelte';
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
+	import BackupHintCard from '$lib/components/BackupHintCard.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import { canWrite, collectionRole } from '$lib/state/access.svelte';
+	import { syncConfigured } from '$lib/sync/supabase';
+	import { auth } from '$lib/sync/auth.svelte';
+	import { hints } from '$lib/state/hints.svelte';
 	import { createCollection, deleteCollection } from '$lib/db/repo';
 	import { childrenOf, rollupCounts } from '$lib/tree';
 	import UsersIcon from '@lucide/svelte/icons/users';
@@ -31,6 +35,15 @@
 	const counts = $derived(rollupCounts(allCollections, itemCountsLive.current));
 	const subCounts = $derived(
 		Object.fromEntries(allCollections.map((c) => [c.id, childrenOf(allCollections, c.id).length]))
+	);
+
+	const showBackupHint = $derived(
+		syncConfigured &&
+			auth.ready &&
+			!auth.session &&
+			!hints.backupDismissed &&
+			collectionsLive.loaded &&
+			collections.length > 0
 	);
 
 	const starters = [
@@ -69,6 +82,10 @@
 			</Button>
 		</div>
 	</div>
+
+	{#if showBackupHint}
+		<BackupHintCard />
+	{/if}
 
 	{#if !collectionsLive.loaded}
 		<CollectionGridSkeleton />

@@ -14,8 +14,13 @@
 	import { syncStatus, syncNow } from '$lib/sync/engine.svelte';
 	import { settings } from '$lib/state/settings.svelte';
 	import { buildBackup, parseBackup, importBackup, ImportError } from '$lib/db/backup';
+	import { db } from '$lib/db/schema';
+	import { itemsToCsv } from '$lib/csv';
 	import { toast } from 'svelte-sonner';
 	import DownloadIcon from '@lucide/svelte/icons/download';
+	import CloudDownloadIcon from '@lucide/svelte/icons/cloud-download';
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import FileSpreadsheetIcon from '@lucide/svelte/icons/file-spreadsheet';
 	import UploadIcon from '@lucide/svelte/icons/upload';
 	import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
 	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
@@ -31,6 +36,8 @@
 	let persisted = $state<boolean | null>(null);
 	let reprocessing = $state(false);
 	let webgpuAvailable = $state<boolean | null>(null);
+	let precaching = $state(false);
+	let modelStatus = $state<import('$lib/ml/precache').PrecacheStatus | null>(null);
 
 	$effect(() => {
 		const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -75,6 +82,39 @@
 		navigator.storage?.persisted?.().then((v) => (persisted = v));
 	});
 
+	$effect(() => {
+		import('$lib/ml/precache').then(({ precacheStatus }) =>
+			precacheStatus().then((s) => (modelStatus = s))
+		);
+	});
+
+	async function downloadModels() {
+		if (precaching) return;
+		precaching = true;
+		const id = toast.loading('Preparing to download models…');
+		try {
+			const { precacheModels, precacheStatus } = await import('$lib/ml/precache');
+			const res = await precacheModels(({ step, total, label }) =>
+				toast.loading(`Downloading models… ${step}/${total} · ${label}`, { id })
+			);
+			toast.dismiss(id);
+			if (res.failed.length === 0) {
+				toast.success('Models ready for offline use');
+			} else if (res.ok.length === 0) {
+				toast.error('Could not download models — check your connection');
+			} else {
+				toast.warning(`Some models failed: ${res.failed.join(', ')}`);
+			}
+			modelStatus = await precacheStatus();
+		} catch (err) {
+			console.error(err);
+			toast.dismiss(id);
+			toast.error('Model download failed');
+		} finally {
+			precaching = false;
+		}
+	}
+
 	async function sendMagicLink(event: SubmitEvent) {
 		event.preventDefault();
 		const { error } = await signInWithMagicLink(email.trim());
@@ -90,15 +130,39 @@
 		);
 	}
 
-	async function exportJson() {
-		const payload = await buildBackup();
-		const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+	function downloadFile(name: string, content: string, mime: string) {
+		const blob = new Blob([content], { type: mime });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `collections-export-${new Date().toISOString().slice(0, 10)}.json`;
+		a.download = name;
 		a.click();
 		URL.revokeObjectURL(url);
+	}
+
+	async function exportJson() {
+		const payload = await buildBackup();
+		downloadFile(
+			`collections-export-${new Date().toISOString().slice(0, 10)}.json`,
+			JSON.stringify(payload, null, 2),
+			'application/json'
+		);
+	}
+
+	async function exportCsv() {
+		const [collections, items] = await Promise.all([
+			db.collections.filter((c) => !c.deletedAt).toArray(),
+			db.items.filter((i) => !i.deletedAt).toArray()
+		]);
+		if (items.length === 0) {
+			toast.info('No items to export');
+			return;
+		}
+		downloadFile(
+			`collections-export-${new Date().toISOString().slice(0, 10)}.csv`,
+			itemsToCsv(items, collections),
+			'text/csv;charset=utf-8'
+		);
 	}
 
 	let fileInput = $state<HTMLInputElement>();
@@ -331,6 +395,34 @@
 					{reprocessing ? 'Re-scanning…' : 'Re-scan all'}
 				</Button>
 			</div>
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<Label>Download recognition models now</Label>
+					<p class="text-xs text-muted-foreground">
+						Fetches the on-device models (~40–150&nbsp;MB depending on options) so scanning works
+						fully offline from the first use.
+						{#if modelStatus === 'unsupported'}
+							Caching needs the installed / production app.
+						{/if}
+					</p>
+				</div>
+				{#if modelStatus === 'cached' && !precaching}
+					<Button variant="outline" size="sm" disabled>
+						<CheckIcon class="size-4" />
+						Downloaded
+					</Button>
+				{:else}
+					<Button
+						variant="outline"
+						size="sm"
+						onclick={downloadModels}
+						disabled={precaching}
+					>
+						<CloudDownloadIcon class="size-4" />
+						{precaching ? 'Downloading…' : 'Download'}
+					</Button>
+				{/if}
+			</div>
 			<Button
 				variant="ghost"
 				size="sm"
@@ -411,6 +503,10 @@
 				<Button variant="outline" onclick={exportJson}>
 					<DownloadIcon class="size-4" />
 					Export as JSON
+				</Button>
+				<Button variant="outline" onclick={exportCsv}>
+					<FileSpreadsheetIcon class="size-4" />
+					Export as CSV
 				</Button>
 				<Button variant="outline" onclick={pickImportFile} disabled={importing}>
 					<UploadIcon class="size-4" />

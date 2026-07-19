@@ -1,6 +1,6 @@
 /** Aggregate stats for a set of items — powers the collection summary strip. */
 
-import type { Item } from '$lib/db/types';
+import type { Item, ItemStatus } from '$lib/db/types';
 
 export interface CurrencyTotal {
 	currency: string;
@@ -40,4 +40,30 @@ export function summarizeItems(items: Item[], defaultCurrency: string): Collecti
 	}
 
 	return { items: items.length, pieces, value: toSorted(value), sold: toSorted(sold) };
+}
+
+/**
+ * The most valuable items by acquisition price × quantity, highest first. Items
+ * without a price are excluded. Values may be in different currencies — the rank
+ * is on the raw number, so display each with its own currency.
+ */
+export function topValuableItems(items: Item[], n = 5): Item[] {
+	return items
+		.filter((i) => i.acquisitionPrice !== null)
+		.sort(
+			(a, b) => b.acquisitionPrice! * b.quantity - a.acquisitionPrice! * a.quantity
+		)
+		.slice(0, n);
+}
+
+/** The most recently added items, newest first. */
+export function recentItems(items: Item[], n = 8): Item[] {
+	return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, n);
+}
+
+/** Count of items in each status. */
+export function countByStatus(items: Item[]): Record<ItemStatus, number> {
+	const counts: Record<ItemStatus, number> = { owned: 0, sold: 0, wishlist: 0 };
+	for (const item of items) counts[item.status]++;
+	return counts;
 }
