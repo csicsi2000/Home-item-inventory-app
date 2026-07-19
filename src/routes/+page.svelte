@@ -6,6 +6,7 @@
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import { Badge } from '$lib/components/ui/badge';
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
+	import CollectionGridSkeleton from '$lib/components/CollectionGridSkeleton.svelte';
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import { canWrite, collectionRole } from '$lib/state/access.svelte';
@@ -69,7 +70,9 @@
 		</div>
 	</div>
 
-	{#if collections.length === 0}
+	{#if !collectionsLive.loaded}
+		<CollectionGridSkeleton />
+	{:else if collections.length === 0}
 		<div class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
 			<PackageOpenIcon class="size-10 text-muted-foreground" />
 			<div>
