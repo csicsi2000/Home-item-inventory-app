@@ -1,0 +1,52 @@
+name: CI
+
+# Gate every pull request into `main` so breaking changes (type/a11y errors,
+# failing tests, a build that won't compile) are caught *before* they merge and
+# reach the Pages deploy. Mirrors the checks in AGENTS.md.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  actions: write # needed to delete this run's artifacts (see cleanup step)
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # `--ignore-scripts` matches the deploy workflow (a postinstall script
+      # broke the Pages build — see commit 08b9112).
+      - run: npm ci --ignore-scripts
+      - run: npm run check # svelte-check: type + a11y, must be 0 errors
+      - run: npm test # vitest unit tests
+      # Build with the same env as deploy so a broken production build fails the
+      # PR rather than the deploy. Output is only used to prove it compiles.
+      - run: npm run build
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}
+          PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ vars.PUBLIC_SUPABASE_ANON_KEY }}
+
+      # Free-tier storage: this job never uploads the build output, and here we
+      # delete any artifacts the run may have produced so nothing counts against
+      # the storage quota. Runs even if an earlier step failed.
+      - name: Remove artifacts left by this run
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" --jq '.artifacts[].id')
+          for id in $ids; do
+            echo "Deleting artifact $id"
+            gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/$id"
+          done

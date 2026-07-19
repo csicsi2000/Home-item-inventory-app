@@ -12,7 +12,10 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Never cancel an in-progress production deployment. With `true`, two merges
+  # landing close together race in this group and the older run can cancel the
+  # newer commit's deploy, leaving `main` unpublished (see PR #8). Queue instead.
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -33,6 +36,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: build
+          # Free-tier storage: expire the Pages artifact quickly after deploy.
+          retention-days: 1
 
   deploy:
     needs: build
