@@ -29,9 +29,37 @@ export interface CollectionDisplay {
 	labels: string[];
 }
 
+export type ShareRole = 'read' | 'write' | 'owner';
+
+/**
+ * A share granted to me on someone else's collection, cached locally so
+ * role checks work offline. Rebuilt from the server on every pull.
+ */
+export interface ShareGrant {
+	collectionId: UUID;
+	role: ShareRole;
+	ownerId: UUID;
+	ownerEmail: string | null;
+}
+
+/** A share I granted (or that targets me) as stored on the server. */
+export interface RemoteShare {
+	id: UUID;
+	collectionId: UUID;
+	ownerId: UUID;
+	granteeEmail: string;
+	role: ShareRole;
+	createdAt: string;
+}
+
 export interface Collection extends SyncMeta {
 	id: UUID;
 	name: string;
+	/**
+	 * Supabase user id of the account that owns this collection. Filled in
+	 * from sync; null/undefined → created locally, i.e. mine.
+	 */
+	ownerId?: UUID | null;
 	/** Parent collection for folder-style nesting; null → top level. */
 	parentId: UUID | null;
 	/** Emoji or lucide icon name shown on the dashboard card. */

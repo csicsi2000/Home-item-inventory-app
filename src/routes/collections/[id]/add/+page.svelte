@@ -25,11 +25,21 @@
 	import { onDestroy } from 'svelte';
 	import type { Item } from '$lib/db/types';
 
+	import { canWrite, collectionRole } from '$lib/state/access.svelte';
+
 	const collectionId = $derived(page.params.id!);
 
 	const collection = $derived(
 		live(() => db.collections.get(page.params.id!), undefined, () => page.params.id)
 	);
+
+	// view-only grantees can't add items — bounce back to the collection
+	$effect(() => {
+		if (collection.current && !canWrite(collectionRole(collectionId))) {
+			toast.error('This collection is shared with you as view-only');
+			void goto(`${base}/collections/${collectionId}`);
+		}
+	});
 
 	let busy = $state(false);
 	let added = $state<{ item: Item; thumb: Blob }[]>([]);

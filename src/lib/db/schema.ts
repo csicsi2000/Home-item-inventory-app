@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Collection, Item, ItemEmbedding, ItemPhoto, SyncState } from './types';
+import type { Collection, Item, ItemEmbedding, ItemPhoto, ShareGrant, SyncState } from './types';
 
 export class AppDatabase extends Dexie {
 	collections!: EntityTable<Collection, 'id'>;
@@ -7,6 +7,7 @@ export class AppDatabase extends Dexie {
 	photos!: EntityTable<ItemPhoto, 'id'>;
 	embeddings!: EntityTable<ItemEmbedding, 'itemId'>;
 	syncState!: EntityTable<SyncState, 'table'>;
+	shares!: EntityTable<ShareGrant, 'collectionId'>;
 
 	constructor(name = 'card-collection-scanner') {
 		super(name);
@@ -16,6 +17,9 @@ export class AppDatabase extends Dexie {
 			photos: 'id, itemId, dirty, uploaded',
 			embeddings: 'itemId, dirty',
 			syncState: 'table'
+		});
+		this.version(2).stores({
+			shares: 'collectionId'
 		});
 	}
 }

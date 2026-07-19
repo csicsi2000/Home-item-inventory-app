@@ -1,0 +1,19 @@
+{
+	"name": "card-collection-mcp",
+	"version": "1.0.0",
+	"private": true,
+	"description": "MCP server exposing the card collection (Supabase) to AI agents",
+	"type": "module",
+	"main": "server.js",
+	"scripts": {
+		"start": "node server.js"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.12.0",
+		"@supabase/supabase-js": "^2.50.0",
+		"zod": "^3.25.0"
+	}
+}

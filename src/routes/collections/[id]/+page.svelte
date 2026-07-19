@@ -11,6 +11,10 @@
 	import ItemRow from '$lib/components/ItemRow.svelte';
 	import CollectionSummary from '$lib/components/CollectionSummary.svelte';
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
+	import ShareDialog from '$lib/components/ShareDialog.svelte';
+	import { canWrite, collectionRole, shareGrantsLive } from '$lib/state/access.svelte';
+	import { leaveShare, myUserId } from '$lib/sync/shares';
+	import { auth } from '$lib/sync/auth.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
@@ -31,6 +35,8 @@
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import CheckSquareIcon from '@lucide/svelte/icons/check-square';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
+	import UsersIcon from '@lucide/svelte/icons/users';
+	import LogOutIcon from '@lucide/svelte/icons/log-out';
 	import { toast } from 'svelte-sonner';
 
 	const collectionId = $derived(page.params.id!);
@@ -56,6 +62,31 @@
 	const summary = $derived(summarizeItems(rollupItems.current, settings.defaultCurrency));
 
 	let subDialogOpen = $state(false);
+
+	// access: my own collections are 'owner'; shared ones carry a granted role
+	const role = $derived(collectionRole(collectionId));
+	const writable = $derived(canWrite(role));
+	const isOwner = $derived(role === 'owner');
+	const isForeign = $derived(
+		!!collection.current?.ownerId && collection.current.ownerId !== myUserId()
+	);
+	// "leave" only makes sense where the grant itself lives
+	const hasDirectGrant = $derived(
+		shareGrantsLive.current.some((g) => g.collectionId === collectionId)
+	);
+	let shareOpen = $state(false);
+	let confirmingLeave = $state(false);
+
+	async function leave() {
+		try {
+			await leaveShare(collectionId);
+			confirmingLeave = false;
+			toast.success('Left the shared collection');
+			await goto(`${base}/`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : 'Could not leave the collection');
+		}
+	}
 	const items = $derived(
 		live<Item[]>(
 			() =>
@@ -192,43 +223,73 @@
 		<span class="text-2xl">{collection.current?.icon ?? '📦'}</span>
 		<div class="min-w-0 flex-1">
 			<h1 class="truncate text-xl font-bold tracking-tight">{collection.current?.name ?? '…'}</h1>
-			<p class="text-xs text-muted-foreground">
+			<p class="flex items-center gap-2 text-xs text-muted-foreground">
 				{items.current.length} items{children.length
 				? ` · ${children.length} folder${children.length === 1 ? '' : 's'}`
 				: ''}
+				{#if isForeign}
+					<Badge variant="secondary" class="gap-1 px-1.5 py-0 text-[10px]">
+						<UsersIcon class="size-3" />
+						Shared · {role === 'read' ? 'view only' : role === 'write' ? 'can edit' : 'owner'}
+					</Badge>
+				{/if}
 			</p>
 		</div>
 		{#if selecting}
 			<Button variant="ghost" size="sm" onclick={exitSelect}>Cancel</Button>
 		{:else}
-			{#if items.current.length > 0}
+			{#if isOwner && auth.session}
 				<Button
 					variant="ghost"
 					size="icon"
-					onclick={() => (selecting = true)}
-					aria-label="Select items"
-					title="Select items"
+					onclick={() => (shareOpen = true)}
+					aria-label="Share collection"
+					title="Share collection"
 				>
-					<CheckSquareIcon class="size-5" />
+					<UsersIcon class="size-5" />
 				</Button>
 			{/if}
-			<Button
-				variant="ghost"
-				size="icon"
-				onclick={() => (subDialogOpen = true)}
-				aria-label="New subcollection"
-				title="New subcollection"
-			>
-				<FolderPlusIcon class="size-5" />
-			</Button>
-			<Button variant="outline" size="sm" onclick={addManually}>
-				<PlusIcon class="size-4" />
-				<span class="hidden sm:inline">Add</span>
-			</Button>
-			<Button size="sm" href="{base}/collections/{collectionId}/add">
-				<CameraIcon class="size-4" />
-				Scan
-			</Button>
+			{#if isForeign && hasDirectGrant}
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={() => (confirmingLeave = true)}
+					aria-label="Leave shared collection"
+					title="Leave shared collection"
+				>
+					<LogOutIcon class="size-5" />
+				</Button>
+			{/if}
+			{#if writable}
+				{#if items.current.length > 0}
+					<Button
+						variant="ghost"
+						size="icon"
+						onclick={() => (selecting = true)}
+						aria-label="Select items"
+						title="Select items"
+					>
+						<CheckSquareIcon class="size-5" />
+					</Button>
+				{/if}
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={() => (subDialogOpen = true)}
+					aria-label="New subcollection"
+					title="New subcollection"
+				>
+					<FolderPlusIcon class="size-5" />
+				</Button>
+				<Button variant="outline" size="sm" onclick={addManually}>
+					<PlusIcon class="size-4" />
+					<span class="hidden sm:inline">Add</span>
+				</Button>
+				<Button size="sm" href="{base}/collections/{collectionId}/add">
+					<CameraIcon class="size-4" />
+					Scan
+				</Button>
+			{/if}
 		{/if}
 	</div>
 
@@ -348,13 +409,15 @@
 						Point your camera at an item to add it in one tap.
 					</p>
 				</div>
-				<div class="flex gap-2">
-					<Button href="{base}/collections/{collectionId}/add">
-						<CameraIcon class="size-4" />
-						Scan an item
-					</Button>
-					<Button variant="outline" onclick={addManually}>Add manually</Button>
-				</div>
+				{#if writable}
+					<div class="flex gap-2">
+						<Button href="{base}/collections/{collectionId}/add">
+							<CameraIcon class="size-4" />
+							Scan an item
+						</Button>
+						<Button variant="outline" onclick={addManually}>Add manually</Button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{:else if filtered.length === 0}
@@ -397,6 +460,28 @@
 </div>
 
 <CollectionDialog bind:open={subDialogOpen} parentId={collectionId} />
+
+<ShareDialog
+	bind:open={shareOpen}
+	{collectionId}
+	collectionName={collection.current?.name ?? ''}
+/>
+
+<AlertDialog.Root bind:open={confirmingLeave}>
+	<AlertDialog.Content>
+		<AlertDialog.Header>
+			<AlertDialog.Title>Leave “{collection.current?.name}”?</AlertDialog.Title>
+			<AlertDialog.Description>
+				The collection stays with its owner — it just disappears from your devices until you’re
+				invited again.
+			</AlertDialog.Description>
+		</AlertDialog.Header>
+		<AlertDialog.Footer>
+			<AlertDialog.Cancel>Cancel</AlertDialog.Cancel>
+			<AlertDialog.Action onclick={leave}>Leave</AlertDialog.Action>
+		</AlertDialog.Footer>
+	</AlertDialog.Content>
+</AlertDialog.Root>
 
 {#if selecting}
 	<!-- bulk action bar -->

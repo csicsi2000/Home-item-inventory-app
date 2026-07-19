@@ -1,5 +1,8 @@
 -- Card Collection Scanner — Supabase schema
--- Run this once in your project's SQL editor (Dashboard → SQL → New query).
+-- Run this once in your project's SQL editor (Dashboard → SQL → New query),
+-- then apply migrations/005_sharing.sql and migrations/006_sync_cursor.sql
+-- (fresh bootstrap = this file + those two; migrations 001–004 are already
+-- folded into this file).
 --
 -- Notes:
 --  * updated_at is the CLIENT's last-write-wins timestamp.

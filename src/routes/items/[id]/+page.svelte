@@ -13,6 +13,7 @@
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
 	import { updateItem } from '$lib/db/repo';
+	import { canWrite, collectionRole } from '$lib/state/access.svelte';
 	import { toast } from 'svelte-sonner';
 
 	const itemId = $derived(page.params.id!);
@@ -20,6 +21,11 @@
 
 	const item = $derived(
 		live(() => db.items.get(page.params.id!), undefined, () => page.params.id)
+	);
+
+	// items in a collection shared with me as read-only can't be edited
+	const writable = $derived(
+		item.current ? canWrite(collectionRole(item.current.collectionId)) : true
 	);
 
 	let confirmingDelete = $state(false);
@@ -85,32 +91,41 @@
 			<h1 class="min-w-0 flex-1 truncate text-xl font-bold tracking-tight">
 				{item.current.name || (isNew ? 'New item' : 'Untitled item')}
 			</h1>
-			<Button
-				variant="ghost"
-				size="icon"
-				onclick={rescanText}
-				disabled={rescanning}
-				aria-label="Read text on photos"
-				title="Read text on photos"
-			>
-				<ScanTextIcon class="size-5" />
-			</Button>
-			<Button
-				variant="ghost"
-				size="icon"
-				class="text-destructive"
-				onclick={() => (confirmingDelete = true)}
-				aria-label="Delete item"
-			>
-				<Trash2Icon class="size-5" />
-			</Button>
+			{#if writable}
+				<Button
+					variant="ghost"
+					size="icon"
+					onclick={rescanText}
+					disabled={rescanning}
+					aria-label="Read text on photos"
+					title="Read text on photos"
+				>
+					<ScanTextIcon class="size-5" />
+				</Button>
+				<Button
+					variant="ghost"
+					size="icon"
+					class="text-destructive"
+					onclick={() => (confirmingDelete = true)}
+					aria-label="Delete item"
+				>
+					<Trash2Icon class="size-5" />
+				</Button>
+			{/if}
 		</div>
 
-		<div class="mb-6">
+		{#if !writable}
+			<p class="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+				Shared with you as view-only — editing is disabled.
+			</p>
+		{/if}
+
+		<!-- fieldset[disabled] turns off every input and button inside -->
+		<fieldset disabled={!writable} class="mb-6 min-w-0">
 			<PhotoStrip {itemId} />
-		</div>
+		</fieldset>
 
-		{#if nameCandidates.length}
+		{#if nameCandidates.length && writable}
 			<div class="mb-4 rounded-lg border bg-muted/40 p-3">
 				<div class="mb-2 flex items-center justify-between">
 					<p class="flex items-center gap-2 text-sm font-medium">
@@ -150,7 +165,9 @@
 		{/if}
 
 		{#key item.current.id}
-			<ItemForm item={item.current} autofocusName={isNew} />
+			<fieldset disabled={!writable} class="min-w-0">
+				<ItemForm item={item.current} autofocusName={isNew} />
+			</fieldset>
 		{/key}
 	{:else if item.current === undefined}
 		<p class="py-16 text-center text-sm text-muted-foreground">Loading…</p>

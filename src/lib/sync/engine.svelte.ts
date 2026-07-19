@@ -4,6 +4,7 @@ import type { Collection, Item, ItemPhoto } from '$lib/db/types';
 import { supabase, syncConfigured } from './supabase';
 import { auth } from './auth.svelte';
 import { hydrateMissingPhotos, removeDeletedPhotoObjects, uploadPendingPhotos } from './imageQueue';
+import { purgeRevokedShares, refreshShareGrants } from './shares';
 
 type RemoteRow = Record<string, unknown>;
 
@@ -46,10 +47,27 @@ async function applyWithLww<T extends { updatedAt: string; dirty: 0 | 1 }>(
 	await table.put(merge(local));
 }
 
+/**
+ * Parents before children: the whole batch lands in one upsert statement,
+ * and the RLS insert check on a subcollection looks up its parent row.
+ */
+function sortParentsFirst(rows: Collection[]): Collection[] {
+	const pending = new Map(rows.map((c) => [c.id, c]));
+	const ordered: Collection[] = [];
+	const visit = (c: Collection) => {
+		if (!pending.delete(c.id)) return;
+		const parent = c.parentId ? pending.get(c.parentId) : undefined;
+		if (parent) visit(parent);
+		ordered.push(c);
+	};
+	for (const c of rows) visit(c);
+	return ordered;
+}
+
 const collectionsSync: TableSync = {
 	remote: 'collections',
 	async dirtyRows() {
-		const rows = await db.collections.where('dirty').equals(1).toArray();
+		const rows = sortParentsFirst(await db.collections.where('dirty').equals(1).toArray());
 		return rows.map((c) => ({
 			id: c.id,
 			updatedAt: c.updatedAt,
@@ -79,6 +97,7 @@ const collectionsSync: TableSync = {
 		const updatedAt = iso(row.updated_at);
 		await applyWithLww<Collection>(db.collections, String(row.id), updatedAt, () => ({
 			id: String(row.id),
+			ownerId: (row.user_id as string | null) ?? null,
 			name: String(row.name ?? ''),
 			parentId: (row.parent_id as string | null) ?? null,
 			icon: (row.icon as string | null) ?? null,
@@ -211,7 +230,8 @@ const TABLES: TableSync[] = [collectionsSync, itemsSync, photosSync];
 
 // ---------- push / pull ----------
 
-async function push(): Promise<void> {
+async function push(): Promise<number> {
+	let pushed = 0;
 	for (const table of TABLES) {
 		const dirty = await table.dirtyRows();
 		for (let offset = 0; offset < dirty.length; offset += PUSH_CHUNK) {
@@ -221,11 +241,14 @@ async function push(): Promise<void> {
 				.upsert(chunk.map((c) => c.row), { onConflict: 'id' });
 			if (error) throw new Error(`push ${table.remote}: ${error.message}`);
 			for (const entry of chunk) await table.clearDirty(entry.id, entry.updatedAt);
+			pushed += chunk.length;
 		}
 	}
+	return pushed;
 }
 
-async function pull(): Promise<void> {
+async function pull(): Promise<number> {
+	let applied = 0;
 	for (const table of TABLES) {
 		let cursor = (await db.syncState.get(table.remote))?.lastPulledAt ?? EPOCH;
 		for (;;) {
@@ -238,10 +261,28 @@ async function pull(): Promise<void> {
 			if (error) throw new Error(`pull ${table.remote}: ${error.message}`);
 			if (!data?.length) break;
 			for (const row of data) await table.applyRemote(row as RemoteRow);
+			applied += data.length;
 			cursor = String((data[data.length - 1] as RemoteRow).server_updated_at);
 			await db.syncState.put({ table: table.remote, lastPulledAt: cursor });
 			if (data.length < PULL_PAGE) break;
 		}
+	}
+	return applied;
+}
+
+const REMOTE_CURSOR_KEY = '_remote_cursor';
+
+/**
+ * One cheap RPC that answers "did anything visible to me change?".
+ * Null when the migration isn't applied yet → callers fall back to pulling.
+ */
+async function fetchRemoteCursor(): Promise<string | null> {
+	try {
+		const { data, error } = await supabase!.rpc('sync_cursor');
+		if (error || !data) return null;
+		return new Date(String(data)).toISOString();
+	} catch {
+		return null;
 	}
 }
 
@@ -271,13 +312,33 @@ export async function syncNow(): Promise<void> {
 		await uploadPendingPhotos(auth.session.user.id);
 		await removeDeletedPhotoObjects();
 		await push();
-		await pull();
-		const hydrated = await hydrateMissingPhotos();
-		if (hydrated > 0) {
-			// newly arrived photos may need fingerprints for duplicate detection
-			void import('$lib/ml/embeddingStage').then((m) => m.scheduleBackfill?.());
+
+		// change detection: when the server-side max cursor hasn't moved since
+		// the last pull, skip pulling every table (and the photo scans) entirely
+		const remoteCursor = await fetchRemoteCursor();
+		const lastSeen = (await db.syncState.get(REMOTE_CURSOR_KEY))?.lastPulledAt;
+		const unchanged = remoteCursor !== null && lastSeen !== undefined && remoteCursor <= lastSeen;
+
+		if (!unchanged) {
+			await pull();
+			await refreshShareGrants();
+			await purgeRevokedShares();
+			// drain the download backlog in bounded batches
+			let hydrated = 0;
+			for (;;) {
+				const batch = await hydrateMissingPhotos();
+				hydrated += batch;
+				if (batch < 30) break;
+			}
+			if (hydrated > 0) {
+				// newly arrived photos may need fingerprints for duplicate detection
+				void import('$lib/ml/embeddingStage').then((m) => m.scheduleBackfill?.());
+			}
+			await purgeTombstones();
+			if (remoteCursor) {
+				await db.syncState.put({ table: REMOTE_CURSOR_KEY, lastPulledAt: remoteCursor });
+			}
 		}
-		await purgeTombstones();
 		syncStatus.state = 'idle';
 		syncStatus.lastSyncAt = new Date().toISOString();
 	} catch (err) {

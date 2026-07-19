@@ -4,9 +4,19 @@ import type { Collection, UUID } from '$lib/db/types';
 
 const byCreated = (a: Collection, b: Collection) => a.createdAt.localeCompare(b.createdAt);
 
-/** Direct children of `parentId` (use `null` for top-level), oldest first. */
+/**
+ * Direct children of `parentId` (use `null` for top-level), oldest first.
+ * Collections whose parent isn't in the list count as top-level — a shared
+ * subfolder arrives without its (invisible) parent chain.
+ */
 export function childrenOf(collections: Collection[], parentId: UUID | null): Collection[] {
-	return collections.filter((c) => (c.parentId ?? null) === parentId).sort(byCreated);
+	if (parentId === null) {
+		const ids = new Set(collections.map((c) => c.id));
+		return collections
+			.filter((c) => c.parentId == null || !ids.has(c.parentId))
+			.sort(byCreated);
+	}
+	return collections.filter((c) => c.parentId === parentId).sort(byCreated);
 }
 
 /** Ancestor chain from the root down to (but not including) `id`. */

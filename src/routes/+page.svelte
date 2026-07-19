@@ -8,8 +8,10 @@
 	import CollectionDialog from '$lib/components/CollectionDialog.svelte';
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
+	import { canWrite, collectionRole } from '$lib/state/access.svelte';
 	import { createCollection, deleteCollection } from '$lib/db/repo';
 	import { childrenOf, rollupCounts } from '$lib/tree';
+	import UsersIcon from '@lucide/svelte/icons/users';
 	import type { Collection } from '$lib/db/types';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import MoreVerticalIcon from '@lucide/svelte/icons/more-vertical';
@@ -95,6 +97,7 @@
 	{:else}
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
 			{#each collections as collection (collection.id)}
+				{@const role = collectionRole(collection.id)}
 				<Card.Root class="group relative gap-2 py-4 transition-shadow hover:shadow-md">
 					<a
 						href="{base}/collections/{collection.id}"
@@ -104,21 +107,28 @@
 					<Card.Header class="px-4">
 						<div class="flex items-start justify-between">
 							<span class="text-3xl leading-none">{collection.icon ?? '📦'}</span>
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger
-									class="relative z-10 rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-accent group-hover:opacity-100"
-								>
-									<MoreVerticalIcon class="size-4" />
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end">
-									<DropdownMenu.Item onclick={() => openEdit(collection)}>
-										<PencilIcon class="size-4" /> Edit
-									</DropdownMenu.Item>
-									<DropdownMenu.Item variant="destructive" onclick={() => (deleting = collection)}>
-										<Trash2Icon class="size-4" /> Delete
-									</DropdownMenu.Item>
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
+							{#if canWrite(role)}
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger
+										class="relative z-10 rounded-md p-1 text-muted-foreground opacity-60 transition-opacity hover:bg-accent group-hover:opacity-100"
+									>
+										<MoreVerticalIcon class="size-4" />
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end">
+										<DropdownMenu.Item onclick={() => openEdit(collection)}>
+											<PencilIcon class="size-4" /> Edit
+										</DropdownMenu.Item>
+										{#if role === 'owner'}
+											<DropdownMenu.Item
+												variant="destructive"
+												onclick={() => (deleting = collection)}
+											>
+												<Trash2Icon class="size-4" /> Delete
+											</DropdownMenu.Item>
+										{/if}
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+							{/if}
 						</div>
 					</Card.Header>
 					<Card.Content class="px-4">
@@ -129,6 +139,12 @@
 								<Badge variant="outline" class="gap-1">
 									<FolderIcon class="size-3" />
 									{subCounts[collection.id]}
+								</Badge>
+							{/if}
+							{#if role !== 'owner'}
+								<Badge variant="outline" class="gap-1">
+									<UsersIcon class="size-3" />
+									Shared
 								</Badge>
 							{/if}
 						</div>
