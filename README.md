@@ -20,12 +20,15 @@ Built with SvelteKit 2 + Svelte 5, Tailwind CSS v4 + shadcn-svelte, Dexie (Index
 
 ## Development
 
+This project uses [pnpm](https://pnpm.io) (`corepack enable` gives you the
+version pinned in `package.json`).
+
 ```bash
-npm install
-npm run dev        # http://localhost:5173
-npm test           # unit tests (Vitest + fake-indexeddb)
-npm run check      # svelte-check
-BASE_PATH=/card_collection_scanner npm run build && npm run preview
+pnpm install
+pnpm dev           # http://localhost:5173
+pnpm test          # unit tests (Vitest + fake-indexeddb)
+pnpm run check     # svelte-check
+BASE_PATH=/card_collection_scanner pnpm run build && pnpm run preview
 ```
 
 The app runs fully **local-only** with no configuration. Cloud sync needs the two env vars below.

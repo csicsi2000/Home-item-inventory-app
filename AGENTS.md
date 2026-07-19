@@ -30,15 +30,17 @@ gh pr create --base main --fill
 
 ## Before opening a PR
 
-Run and pass both of these — the CI and the maintainer expect a green tree:
+This repo uses **pnpm** (see the `packageManager` field in `package.json`).
+Install deps with `pnpm install`. Run and pass both of these — the CI and the
+maintainer expect a green tree:
 
 ```sh
-npm run check      # svelte-check (type + a11y); must report 0 errors
-npm test           # vitest unit tests
+pnpm run check     # svelte-check (type + a11y); must report 0 errors
+pnpm test          # vitest unit tests
 ```
 
 If a change is observable in the browser, verify it with the dev server
-(`npm run dev`) rather than asking the maintainer to check manually.
+(`pnpm dev`) rather than asking the maintainer to check manually.
 
 ## Project overview
 

@@ -20,18 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Version comes from the `packageManager` field in package.json.
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
       # `--ignore-scripts` matches the deploy workflow (a postinstall script
       # broke the Pages build — see commit 08b9112).
-      - run: npm ci --ignore-scripts
-      - run: npm run check # svelte-check: type + a11y, must be 0 errors
-      - run: npm test # vitest unit tests
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm run check # svelte-check: type + a11y, must be 0 errors
+      - run: pnpm test # vitest unit tests
       # Build with the same env as deploy so a broken production build fails the
       # PR rather than the deploy. Output is only used to prove it compiles.
-      - run: npm run build
+      - run: pnpm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}
           PUBLIC_SUPABASE_URL: ${{ vars.PUBLIC_SUPABASE_URL }}
