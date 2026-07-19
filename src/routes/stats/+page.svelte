@@ -14,7 +14,7 @@
 	import { childrenOf, descendantIds, rollupCounts } from '$lib/tree';
 	import { formatMoney } from '$lib/currency';
 	import CollectionSummary from '$lib/components/CollectionSummary.svelte';
-	import ItemGridSkeleton from '$lib/components/ItemGridSkeleton.svelte';
+	import StatsSkeleton from '$lib/components/StatsSkeleton.svelte';
 	import Thumb from '$lib/components/Thumb.svelte';
 	import * as Card from '$lib/components/ui/card';
 	import { Badge } from '$lib/components/ui/badge';
@@ -72,7 +72,7 @@
 	<h1 class="mb-4 text-2xl font-bold tracking-tight">Stats</h1>
 
 	{#if !loaded}
-		<ItemGridSkeleton view="grid" />
+		<StatsSkeleton />
 	{:else if items.current.length === 0}
 		<div class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
 			<PackageOpenIcon class="size-10 text-muted-foreground" />

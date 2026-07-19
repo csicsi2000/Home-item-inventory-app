@@ -37,6 +37,11 @@
 		Object.fromEntries(allCollections.map((c) => [c.id, childrenOf(allCollections, c.id).length]))
 	);
 
+	// Hold the skeleton until auth has also resolved (when sync is configured) so
+	// the backup hint's slot is known before real content paints — otherwise the
+	// grid renders first and gets shoved down when the hint pops in a tick later.
+	const pageReady = $derived(collectionsLive.loaded && (auth.ready || !syncConfigured));
+
 	const showBackupHint = $derived(
 		syncConfigured &&
 			auth.ready &&
@@ -87,7 +92,7 @@
 		<BackupHintCard />
 	{/if}
 
-	{#if !collectionsLive.loaded}
+	{#if !pageReady}
 		<CollectionGridSkeleton />
 	{:else if collections.length === 0}
 		<div class="flex flex-col items-center gap-4 rounded-xl border border-dashed py-16 text-center">
