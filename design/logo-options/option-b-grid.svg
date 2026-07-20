@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+	<title>Option B — collection grid</title>
+	<rect width="512" height="512" rx="96" fill="#0a0a0a" />
+	<rect x="116" y="116" width="130" height="130" rx="26" fill="#f4f4f5" />
+	<rect x="266" y="116" width="130" height="130" rx="26" fill="#9aa0a6" />
+	<rect x="116" y="266" width="130" height="130" rx="26" fill="#6b7280" />
+	<rect x="266" y="266" width="130" height="130" rx="26" fill="#14b8a6" />
+</svg>
