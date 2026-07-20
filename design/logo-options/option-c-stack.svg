@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+	<title>Option C — layered stack</title>
+	<rect width="512" height="512" rx="96" fill="#0a0a0a" />
+	<rect x="196" y="196" width="180" height="180" rx="30" fill="#6b7280" />
+	<rect x="166" y="166" width="180" height="180" rx="30" fill="#9aa0a6" />
+	<rect x="136" y="136" width="180" height="180" rx="30" fill="#14b8a6" />
+</svg>
