@@ -13,12 +13,17 @@
  * here; the detail page renders those instantly until its own data arrives.
  *
  * Everything is cleared once the transition finishes so nothing lingers.
+ *
+ * `back` is a one-shot hint set right before a back/up navigation that isn't a
+ * morph, so the page transition slides in the "back" direction (the flat
+ * /collections/:id URLs can't be told apart by depth otherwise).
  */
 class Morph {
 	id = $state<string | null>(null);
 	label = $state('');
 	icon = $state<string | null>(null);
 	thumb = $state<Blob | null>(null);
+	back = $state(false);
 
 	set(id: string, label: string, icon: string | null = null, thumb: Blob | null = null) {
 		this.id = id;
@@ -32,6 +37,7 @@ class Morph {
 		this.label = '';
 		this.icon = null;
 		this.thumb = null;
+		this.back = false;
 	}
 }
 

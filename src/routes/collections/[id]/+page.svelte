@@ -70,12 +70,17 @@
 		flushSync();
 	}
 
-	// Reverse morph: tag this collection before navigating back/up, so its card
-	// on the destination (parent collection or the all-collections page) is the
-	// morph target it shrinks back into.
-	function backMorph() {
-		morph.id = collectionId;
-		flushSync();
+	// Reverse morph into the all-collections dashboard tile — it renders instantly
+	// from the warm store, so the morph target is ready. `toDashboard` is true for
+	// the back button only when there's no parent, and always for the "Collections"
+	// crumb. Stepping up to a parent hits an async grid, so slide back instead.
+	function backMorph(toDashboard: boolean) {
+		if (toDashboard) {
+			morph.id = collectionId;
+			flushSync();
+		} else {
+			morph.back = true;
+		}
 	}
 
 	const collection = $derived(
@@ -370,10 +375,14 @@
 >
 	{#if ancestors.length}
 		<nav class="mb-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-			<a href="{base}/" onclick={backMorph} class="hover:text-foreground">Collections</a>
+			<a href="{base}/" onclick={() => backMorph(true)} class="hover:text-foreground">Collections</a>
 			{#each ancestors as a (a.id)}
 				<span>/</span>
-				<a href="{base}/collections/{a.id}" onclick={backMorph} class="truncate hover:text-foreground">
+				<a
+					href="{base}/collections/{a.id}"
+					onclick={() => backMorph(false)}
+					class="truncate hover:text-foreground"
+				>
 					{a.icon ?? '📁'} {a.name}
 				</a>
 			{/each}
@@ -386,7 +395,7 @@
 			href={ancestors.length
 				? `${base}/collections/${ancestors[ancestors.length - 1].id}`
 				: `${base}/`}
-			onclick={backMorph}
+			onclick={() => backMorph(ancestors.length === 0)}
 			aria-label="Back"
 		>
 			<ArrowLeftIcon class="size-5" />

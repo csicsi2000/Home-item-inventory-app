@@ -26,6 +26,7 @@
 	//  - 'back'    moving up the menu / stepping back → slide in from the left
 	function navMode(from: URL, to: URL): 'morph' | 'forward' | 'back' {
 		if (morph.id) return 'morph';
+		if (morph.back) return 'back';
 		const fromTab = tabIndexFor(from.pathname);
 		const toTab = tabIndexFor(to.pathname);
 		if (fromTab !== toTab) return toTab > fromTab ? 'forward' : 'back';
@@ -41,34 +42,16 @@
 			return;
 		}
 		document.documentElement.dataset.nav = navMode(nav.from.url, nav.to.url);
+		morph.back = false; // one-shot hint, consumed
 		return new Promise((resolve) => {
 			const transition = document.startViewTransition(async () => {
 				resolve();
 				await nav.complete;
-				// The destination's list (Dexie live query) paints a frame or two after
-				// navigation. Hold the snapshot briefly so a reverse-morph target — the
-				// card we're shrinking back into — exists before it's captured.
-				await settleMorphTarget();
 			});
 			// drop the morph target once done so nothing lingers on the list view
 			transition.finished.finally(() => morph.clear());
 		});
 	});
-
-	// Wait (a few frames, capped) for the destination to render the element that
-	// carries the shared name, so the morph has something to land on. No-op when
-	// there's no morph or the page is hidden (view transitions don't run then).
-	async function settleMorphTarget() {
-		if (!morph.id || document.visibilityState === 'hidden') return;
-		const hasTarget = () =>
-			[...document.querySelectorAll('[style*="view-transition-name"]')].some((el) => {
-				const n = getComputedStyle(el).viewTransitionName;
-				return n && n !== 'none' && n !== 'root';
-			});
-		for (let frame = 0; frame < 6 && !hasTarget(); frame++) {
-			await new Promise((r) => requestAnimationFrame(() => r(undefined)));
-		}
-	}
 
 	const tabs = [
 		{ href: `${base}/`, label: 'Collections', icon: LayersIcon, exact: false },

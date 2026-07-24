@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { flushSync } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
@@ -43,11 +42,11 @@
 				: ''
 	);
 
-	// Reverse morph: tag this item as the shared element before navigating back,
-	// so its title + photo morph into the matching card on the collection page.
+	// Going back to the collection hits an async-loaded item grid, so a morph
+	// target won't be painted in time — slide back instead of a janky delayed
+	// morph (the forward tap→grow animation stays as-is).
 	function backMorph() {
-		morph.id = itemId;
-		flushSync();
+		morph.back = true;
 	}
 
 	let confirmingDelete = $state(false);
