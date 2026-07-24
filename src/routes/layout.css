@@ -127,3 +127,77 @@
 		@apply font-sans;
 	}
 }
+
+/* ---- Page navigation animations (View Transitions API) ----
+   Direction is chosen in AppShell via `html[data-nav]`. Tab/section changes
+   slide; a tapped card grows into its detail page via `view-transition-name:
+   card-hero` (set on the card and matched on the detail page). */
+@keyframes vt-in-from-right {
+	from {
+		opacity: 0;
+		transform: translateX(24px);
+	}
+}
+@keyframes vt-out-to-left {
+	to {
+		opacity: 0;
+		transform: translateX(-24px);
+	}
+}
+@keyframes vt-in-from-left {
+	from {
+		opacity: 0;
+		transform: translateX(-24px);
+	}
+}
+@keyframes vt-out-to-right {
+	to {
+		opacity: 0;
+		transform: translateX(24px);
+	}
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation-duration: 220ms;
+	animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+}
+
+/* directional slides for menu / drill-down navigation */
+html[data-nav='forward']::view-transition-old(root) {
+	animation-name: vt-out-to-left;
+}
+html[data-nav='forward']::view-transition-new(root) {
+	animation-name: vt-in-from-right;
+}
+html[data-nav='back']::view-transition-old(root) {
+	animation-name: vt-out-to-right;
+}
+html[data-nav='back']::view-transition-new(root) {
+	animation-name: vt-in-from-left;
+}
+/* 'morph' keeps the default cross-fade on root so the growing card leads */
+
+/* the card ↔ detail-page shared elements, each morphing to its new size +
+   position: the whole card box (card-hero), its title/name text (card-title),
+   the collection emoji (card-icon) and the item photo (card-thumb) */
+::view-transition-group(card-hero),
+::view-transition-group(card-title),
+::view-transition-group(card-icon),
+::view-transition-group(card-thumb) {
+	animation-duration: 320ms;
+	animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+}
+::view-transition-image-pair(card-hero),
+::view-transition-image-pair(card-thumb) {
+	border-radius: var(--radius);
+	overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	::view-transition-group(*),
+	::view-transition-old(*),
+	::view-transition-new(*) {
+		animation: none !important;
+	}
+}

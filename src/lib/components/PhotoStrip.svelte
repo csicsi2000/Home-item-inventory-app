@@ -4,6 +4,7 @@
 	import { processImage } from '$lib/scan/image';
 	import { processQueue } from '$lib/ml/queue.svelte';
 	import { live } from '$lib/state/live.svelte';
+	import { morph } from '$lib/state/morph.svelte';
 	import Thumb from './Thumb.svelte';
 	import PhotoViewer from './PhotoViewer.svelte';
 	import CameraCapture from './CameraCapture.svelte';
@@ -16,8 +17,16 @@
 	import { toast } from 'svelte-sonner';
 	import type { ItemPhoto } from '$lib/db/types';
 
-	let { itemId, onPhotoAdded }: { itemId: string; onPhotoAdded?: (photo: ItemPhoto) => void } =
-		$props();
+	let {
+		itemId,
+		onPhotoAdded,
+		heroThumb = null
+	}: {
+		itemId: string;
+		onPhotoAdded?: (photo: ItemPhoto) => void;
+		/** Tapped card's photo, shown instantly as the morph target until the real photos load. */
+		heroThumb?: Blob | null;
+	} = $props();
 
 	const photos = $derived(
 		live<ItemPhoto[]>(
@@ -34,6 +43,16 @@
 			() => itemId
 		)
 	);
+
+	// The primary photo lives in a single persistent slot: while the real photos
+	// load it shows the tapped card's photo (heroThumb), then swaps to the actual
+	// primary — without remounting, so its `card-thumb` view-transition-name never
+	// jumps between elements, which would abort the morph.
+	const primaryPhoto = $derived(photos.current[0]);
+	const primaryBlob = $derived(
+		primaryPhoto ? (primaryPhoto.thumb ?? primaryPhoto.blob) : !photos.loaded ? heroThumb : null
+	);
+	const restPhotos = $derived(photos.current.slice(1));
 
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let busy = $state(false);
@@ -107,30 +126,55 @@
 	}
 </script>
 
+{#snippet controls(photo: ItemPhoto)}
+	<button
+		type="button"
+		class="absolute top-1 right-1 rounded-full bg-background/80 p-1 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
+		onclick={() => deletePhoto(photo.id)}
+		aria-label="Delete photo"
+	>
+		<XIcon class="size-3.5" />
+	</button>
+	<button
+		type="button"
+		class="absolute bottom-1 left-1 rounded-full bg-background/80 p-1 backdrop-blur transition-opacity"
+		class:opacity-0={!photo.isPrimary}
+		class:group-hover:opacity-100={!photo.isPrimary}
+		onclick={() => makePrimary(photo)}
+		aria-label={photo.isPrimary ? 'Primary photo' : 'Make primary'}
+	>
+		<StarIcon class={photo.isPrimary ? 'size-3.5 fill-amber-400 text-amber-400' : 'size-3.5'} />
+	</button>
+{/snippet}
+
 <div class="flex gap-2 overflow-x-auto pb-1">
-	{#each photos.current as photo, i (photo.id)}
+	{#if primaryBlob}
+		<div
+			class="group relative shrink-0"
+			style:view-transition-name={morph.id === itemId ? 'card-thumb' : undefined}
+		>
+			<button
+				type="button"
+				class="block"
+				onclick={() => primaryPhoto && openViewer(0)}
+				aria-label="View photo full screen"
+			>
+				<Thumb blob={primaryBlob} alt="" class="size-28 rounded-lg border sm:size-32" />
+			</button>
+			{#if primaryPhoto}{@render controls(primaryPhoto)}{/if}
+		</div>
+	{/if}
+	{#each restPhotos as photo, j (photo.id)}
 		<div class="group relative shrink-0">
-			<button type="button" class="block" onclick={() => openViewer(i)} aria-label="View photo full screen">
+			<button
+				type="button"
+				class="block"
+				onclick={() => openViewer(j + 1)}
+				aria-label="View photo full screen"
+			>
 				<Thumb blob={photo.thumb ?? photo.blob} alt="" class="size-28 rounded-lg border sm:size-32" />
 			</button>
-			<button
-				type="button"
-				class="absolute top-1 right-1 rounded-full bg-background/80 p-1 opacity-0 backdrop-blur transition-opacity group-hover:opacity-100"
-				onclick={() => deletePhoto(photo.id)}
-				aria-label="Delete photo"
-			>
-				<XIcon class="size-3.5" />
-			</button>
-			<button
-				type="button"
-				class="absolute bottom-1 left-1 rounded-full bg-background/80 p-1 backdrop-blur transition-opacity"
-				class:opacity-0={!photo.isPrimary}
-				class:group-hover:opacity-100={!photo.isPrimary}
-				onclick={() => makePrimary(photo)}
-				aria-label={photo.isPrimary ? 'Primary photo' : 'Make primary'}
-			>
-				<StarIcon class={photo.isPrimary ? 'size-3.5 fill-amber-400 text-amber-400' : 'size-3.5'} />
-			</button>
+			{@render controls(photo)}
 		</div>
 	{/each}
 	<Button

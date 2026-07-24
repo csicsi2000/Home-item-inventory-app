@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import { base } from '$app/paths';
 	import { Badge } from '$lib/components/ui/badge';
 	import Thumb from './Thumb.svelte';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import type { Item } from '$lib/db/types';
 	import { cn } from '$lib/utils.js';
+	import { morph } from '$lib/state/morph.svelte';
 
 	let {
 		item,
@@ -24,10 +26,22 @@
 	} = $props();
 
 	const meta = $derived(chips ?? (item.tags.length ? [item.tags.map((t) => `#${t}`).join(' ')] : []));
+
+	// Tag this card as the shared element so it morphs into the detail page, and
+	// stash its name + photo so the detail page can render them as the morph
+	// target before its own data loads. flushSync applies the name to the DOM
+	// before the View Transition snapshots.
+	function startMorph() {
+		morph.set(item.id, item.name || 'Untitled item', null, thumb ?? null);
+		flushSync();
+	}
 </script>
 
 {#snippet body()}
-	<div class="relative aspect-square w-full overflow-hidden">
+	<div
+		class="relative aspect-square w-full overflow-hidden"
+		style:view-transition-name={morph.id === item.id && thumb ? 'card-thumb' : undefined}
+	>
 		<Thumb blob={thumb} alt={item.name} class="size-full transition-transform group-hover:scale-[1.03]" />
 		{#if item.quantity > 1}
 			<Badge class="absolute top-2 right-2 bg-background/85 text-foreground backdrop-blur">
@@ -54,7 +68,12 @@
 		{/if}
 	</div>
 	<div class="p-2.5">
-		<p class="truncate text-sm font-medium">{item.name || 'Untitled item'}</p>
+		<p
+			class="truncate text-sm font-medium"
+			style:view-transition-name={morph.id === item.id ? 'card-title' : undefined}
+		>
+			{item.name || 'Untitled item'}
+		</p>
 		{#each meta as chip, i (i)}
 			<p class="mt-0.5 truncate text-xs text-muted-foreground">{chip}</p>
 		{/each}
@@ -75,6 +94,7 @@
 {:else}
 	<a
 		href="{base}/items/{item.id}"
+		onclick={startMorph}
 		class="group block overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md"
 	>
 		{@render body()}
