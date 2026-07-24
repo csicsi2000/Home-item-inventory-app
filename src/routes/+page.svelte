@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import { base } from '$app/paths';
+	import { morph } from '$lib/state/morph.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Card from '$lib/components/ui/card';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -72,6 +74,14 @@
 		await deleteCollection(deleting.id);
 		deleting = null;
 	}
+
+	// Tag the tapped collection as the shared element so it grows into its page,
+	// stashing its name + emoji so the detail page can render them as the morph
+	// target before its own data loads.
+	function startMorph(c: Collection) {
+		morph.set(c.id, c.name, c.icon ?? '📦');
+		flushSync();
+	}
 </script>
 
 <svelte:head><title>Collections</title></svelte:head>
@@ -123,15 +133,22 @@
 		<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
 			{#each collections as collection (collection.id)}
 				{@const role = collectionRole(collection.id)}
-				<Card.Root class="group relative gap-2 py-4 transition-shadow hover:shadow-md">
+				<Card.Root
+					class="group relative gap-2 py-4 transition-shadow hover:shadow-md"
+					style={morph.id === collection.id ? 'view-transition-name: card-hero' : undefined}
+				>
 					<a
 						href="{base}/collections/{collection.id}"
+						onclick={() => startMorph(collection)}
 						class="absolute inset-0 z-0 rounded-xl"
 						aria-label={collection.name}
 					></a>
 					<Card.Header class="px-4">
 						<div class="flex items-start justify-between">
-							<span class="text-3xl leading-none">{collection.icon ?? '📦'}</span>
+							<span
+								class="text-3xl leading-none"
+								style:view-transition-name={morph.id === collection.id ? 'card-icon' : undefined}
+							>{collection.icon ?? '📦'}</span>
 							{#if canWrite(role)}
 								<DropdownMenu.Root>
 									<DropdownMenu.Trigger
@@ -157,7 +174,12 @@
 						</div>
 					</Card.Header>
 					<Card.Content class="px-4">
-						<p class="truncate font-semibold">{collection.name}</p>
+						<p
+							class="truncate font-semibold"
+							style:view-transition-name={morph.id === collection.id ? 'card-title' : undefined}
+						>
+							{collection.name}
+						</p>
 						<div class="mt-1 flex flex-wrap items-center gap-1.5">
 							<Badge variant="secondary">{counts[collection.id] ?? 0} items</Badge>
 							{#if subCounts[collection.id]}
