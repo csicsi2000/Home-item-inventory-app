@@ -15,6 +15,7 @@
 	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
 	import { updateItem } from '$lib/db/repo';
 	import { canWrite, collectionRole } from '$lib/state/access.svelte';
+	import { morph } from '$lib/state/morph.svelte';
 	import { toast } from 'svelte-sonner';
 
 	const itemId = $derived(page.params.id!);
@@ -28,6 +29,25 @@
 	const writable = $derived(
 		item.current ? canWrite(collectionRole(item.current.collectionId)) : true
 	);
+
+	// The header is always shown (it's the morph target). While the item loads,
+	// use the name stashed by the tapped card so it reads correctly from the
+	// first frame; on a direct visit (no morph) stay blank rather than flash a
+	// wrong placeholder before the real name lands.
+	const headerName = $derived(
+		item.current
+			? item.current.name || (isNew ? 'New item' : 'Untitled item')
+			: morph.id === itemId
+				? morph.label
+				: ''
+	);
+
+	// Going back to the collection hits an async-loaded item grid, so a morph
+	// target won't be painted in time — slide back instead of a janky delayed
+	// morph (the forward tap→grow animation stays as-is).
+	function backMorph() {
+		morph.back = true;
+	}
 
 	let confirmingDelete = $state(false);
 	let rescanning = $state(false);
@@ -79,54 +99,67 @@
 <svelte:head><title>{item.current?.name || 'Item'}</title></svelte:head>
 
 <div class="mx-auto max-w-3xl px-4 py-6 md:px-8">
-	{#if item.current && !item.current.deletedAt}
-		<div class="mb-4 flex items-center gap-3">
+	<div class="mb-4 flex items-center gap-3">
+		<Button
+			variant="ghost"
+			size="icon"
+			href={item.current ? `${base}/collections/${item.current.collectionId}` : `${base}/`}
+			onclick={backMorph}
+			aria-label="Back to collection"
+		>
+			<ArrowLeftIcon class="size-5" />
+		</Button>
+		<h1
+			class="min-w-0 flex-1 truncate text-xl font-bold tracking-tight"
+			style:view-transition-name={morph.id === itemId ? 'card-title' : undefined}
+		>
+			{headerName}
+		</h1>
+		{#if item.current && !item.current.deletedAt && writable}
 			<Button
 				variant="ghost"
 				size="icon"
-				href="{base}/collections/{item.current.collectionId}"
-				aria-label="Back to collection"
+				onclick={rescanText}
+				disabled={rescanning}
+				aria-label="Read text on photos"
+				title="Read text on photos"
 			>
-				<ArrowLeftIcon class="size-5" />
+				<ScanTextIcon class="size-5" />
 			</Button>
-			<h1 class="min-w-0 flex-1 truncate text-xl font-bold tracking-tight">
-				{item.current.name || (isNew ? 'New item' : 'Untitled item')}
-			</h1>
-			{#if writable}
-				<Button
-					variant="ghost"
-					size="icon"
-					onclick={rescanText}
-					disabled={rescanning}
-					aria-label="Read text on photos"
-					title="Read text on photos"
-				>
-					<ScanTextIcon class="size-5" />
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon"
-					class="text-destructive"
-					onclick={() => (confirmingDelete = true)}
-					aria-label="Delete item"
-				>
-					<Trash2Icon class="size-5" />
-				</Button>
-			{/if}
-		</div>
+			<Button
+				variant="ghost"
+				size="icon"
+				class="text-destructive"
+				onclick={() => (confirmingDelete = true)}
+				aria-label="Delete item"
+			>
+				<Trash2Icon class="size-5" />
+			</Button>
+		{/if}
+	</div>
 
-		{#if !writable}
+	{#if item.current?.deletedAt}
+		<div class="py-16 text-center">
+			<p class="font-medium">Item not found</p>
+			<Button variant="link" href="{base}/">Back to collections</Button>
+		</div>
+	{:else}
+		{#if item.current && !writable}
 			<p class="mb-4 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
 				Shared with you as view-only — editing is disabled.
 			</p>
 		{/if}
 
-		<!-- fieldset[disabled] turns off every input and button inside -->
-		<fieldset disabled={!writable} class="mb-6 min-w-0">
-			<PhotoStrip {itemId} />
+		<!-- Always rendered (never swapped in on load) so the photo's `card-thumb`
+		     morph target is a single, stable element for the whole transition —
+		     relocating a tracked view-transition-name mid-flight aborts the morph.
+		     fieldset[disabled] turns off every input and button inside. -->
+		<fieldset disabled={!item.current || !writable} class="mb-6 min-w-0">
+			<PhotoStrip {itemId} heroThumb={morph.id === itemId ? morph.thumb : null} />
 		</fieldset>
 
-		{#if nameCandidates.length && writable}
+		{#if item.current}
+			{#if nameCandidates.length && writable}
 			<div class="mb-4 rounded-lg border bg-muted/40 p-3">
 				<div class="mb-2 flex items-center justify-between">
 					<p class="flex items-center gap-2 text-sm font-medium">
@@ -165,24 +198,14 @@
 			</details>
 		{/if}
 
-		{#key item.current.id}
-			<fieldset disabled={!writable} class="min-w-0">
-				<ItemForm item={item.current} autofocusName={isNew} />
-			</fieldset>
-		{/key}
-	{:else if item.current === undefined}
-		<!-- mirrors the header + photo strip + form so nothing jumps when the item lands -->
-		<div aria-hidden="true">
-			<div class="mb-4 flex items-center gap-3">
-				<Skeleton class="size-9 rounded-md" />
-				<Skeleton class="h-6 flex-1 max-w-[16rem]" />
-			</div>
-			<div class="mb-6 flex gap-2">
-				{#each Array(3) as _, i (i)}
-					<Skeleton class="size-28 shrink-0 rounded-lg sm:size-32" />
-				{/each}
-			</div>
-			<div class="grid gap-4">
+			{#key item.current.id}
+				<fieldset disabled={!writable} class="min-w-0">
+					<ItemForm item={item.current} autofocusName={isNew} />
+				</fieldset>
+			{/key}
+		{:else}
+			<!-- form fields still loading; the header + photo are already shown above -->
+			<div aria-hidden="true" class="grid gap-4">
 				{#each Array(5) as _, i (i)}
 					<div>
 						<Skeleton class="h-3 w-24" />
@@ -190,12 +213,7 @@
 					</div>
 				{/each}
 			</div>
-		</div>
-	{:else}
-		<div class="py-16 text-center">
-			<p class="font-medium">Item not found</p>
-			<Button variant="link" href="{base}/">Back to collections</Button>
-		</div>
+		{/if}
 	{/if}
 </div>
 

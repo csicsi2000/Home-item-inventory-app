@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
 	import { goto } from '$app/navigation';
+	import { morph } from '$lib/state/morph.svelte';
 	import { db } from '$lib/db/schema';
 	import {
 		addTagToItems,
@@ -11,7 +13,7 @@
 		setItemsStatus,
 		updateCollection
 	} from '$lib/db/repo';
-	import type { CollectionSort, CollectionViewMode, Item, ItemStatus, SortKey } from '$lib/db/types';
+	import type { Collection, CollectionSort, CollectionViewMode, Item, ItemStatus, SortKey } from '$lib/db/types';
 	import { live } from '$lib/state/live.svelte';
 	import { collectionsLive, itemCountsLive } from '$lib/state/collections.svelte';
 	import ItemCard from '$lib/components/ItemCard.svelte';
@@ -59,6 +61,27 @@
 	import { toast } from 'svelte-sonner';
 
 	const collectionId = $derived(page.params.id!);
+
+	// Tag the tapped collection as the shared element so it grows into its page,
+	// stashing its name + emoji so the detail page can render them as the morph
+	// target before its own data loads.
+	function startMorph(c: Collection) {
+		morph.set(c.id, c.name, c.icon ?? '📁');
+		flushSync();
+	}
+
+	// Reverse morph into the all-collections dashboard tile — it renders instantly
+	// from the warm store, so the morph target is ready. `toDashboard` is true for
+	// the back button only when there's no parent, and always for the "Collections"
+	// crumb. Stepping up to a parent hits an async grid, so slide back instead.
+	function backMorph(toDashboard: boolean) {
+		if (toDashboard) {
+			morph.id = collectionId;
+			flushSync();
+		} else {
+			morph.back = true;
+		}
+	}
 
 	const collection = $derived(
 		live(() => db.collections.get(page.params.id!), undefined, () => page.params.id)
@@ -346,13 +369,20 @@
 
 <svelte:head><title>{collection.current?.name ?? 'Collection'}</title></svelte:head>
 
-<div class="mx-auto max-w-5xl px-4 py-6 md:px-8">
+<div
+	class="mx-auto max-w-5xl px-4 py-6 md:px-8"
+	style:view-transition-name={morph.id === collectionId ? 'card-hero' : undefined}
+>
 	{#if ancestors.length}
 		<nav class="mb-2 flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-			<a href="{base}/" class="hover:text-foreground">Collections</a>
+			<a href="{base}/" onclick={() => backMorph(true)} class="hover:text-foreground">Collections</a>
 			{#each ancestors as a (a.id)}
 				<span>/</span>
-				<a href="{base}/collections/{a.id}" class="truncate hover:text-foreground">
+				<a
+					href="{base}/collections/{a.id}"
+					onclick={() => backMorph(false)}
+					class="truncate hover:text-foreground"
+				>
 					{a.icon ?? '📁'} {a.name}
 				</a>
 			{/each}
@@ -365,13 +395,22 @@
 			href={ancestors.length
 				? `${base}/collections/${ancestors[ancestors.length - 1].id}`
 				: `${base}/`}
+			onclick={() => backMorph(ancestors.length === 0)}
 			aria-label="Back"
 		>
 			<ArrowLeftIcon class="size-5" />
 		</Button>
-		<span class="text-2xl">{collection.current?.icon ?? '📦'}</span>
+		<span
+			class="text-2xl"
+			style:view-transition-name={morph.id === collectionId ? 'card-icon' : undefined}
+		>{collection.current?.icon ?? (morph.id === collectionId ? morph.icon : null) ?? '📦'}</span>
 		<div class="min-w-0 flex-1">
-			<h1 class="truncate text-xl font-bold tracking-tight">{collection.current?.name ?? '…'}</h1>
+			<h1
+				class="truncate text-xl font-bold tracking-tight"
+				style:view-transition-name={morph.id === collectionId ? 'card-title' : undefined}
+			>
+				{collection.current?.name ?? (morph.id === collectionId ? morph.label : null) ?? '…'}
+			</h1>
 			<p class="flex items-center gap-2 text-xs text-muted-foreground">
 				{items.loaded ? `${items.current.length} items` : '…'}{children.length
 				? ` · ${children.length} folder${children.length === 1 ? '' : 's'}`
@@ -536,11 +575,21 @@
 				{#each children as child (child.id)}
 					<a
 						href="{base}/collections/{child.id}"
+						onclick={() => startMorph(child)}
+						style:view-transition-name={morph.id === child.id ? 'card-hero' : undefined}
 						class="flex items-center gap-3 rounded-xl border bg-card px-3 py-3 transition-shadow hover:shadow-md"
 					>
-						<span class="text-2xl leading-none">{child.icon ?? '📁'}</span>
+						<span
+							class="text-2xl leading-none"
+							style:view-transition-name={morph.id === child.id ? 'card-icon' : undefined}
+						>{child.icon ?? '📁'}</span>
 						<div class="min-w-0">
-							<p class="truncate text-sm font-medium">{child.name}</p>
+							<p
+								class="truncate text-sm font-medium"
+								style:view-transition-name={morph.id === child.id ? 'card-title' : undefined}
+							>
+								{child.name}
+							</p>
 							<p class="text-xs text-muted-foreground">{rolledCounts[child.id] ?? 0} items</p>
 						</div>
 					</a>

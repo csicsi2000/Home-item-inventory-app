@@ -1,10 +1,12 @@
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import { base } from '$app/paths';
 	import { Badge } from '$lib/components/ui/badge';
 	import Thumb from './Thumb.svelte';
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import type { Item } from '$lib/db/types';
 	import { cn } from '$lib/utils.js';
+	import { morph } from '$lib/state/morph.svelte';
 
 	let {
 		item,
@@ -22,10 +24,22 @@
 		selected?: boolean;
 		onToggle?: () => void;
 	} = $props();
+
+	// Tag this row as the shared element so it morphs into the detail page, and
+	// stash its name + photo so the detail page can render them as the morph
+	// target before its own data loads. flushSync applies the name to the DOM
+	// before the View Transition snapshots.
+	function startMorph() {
+		morph.set(item.id, item.name || 'Untitled item', null, thumb ?? null);
+		flushSync();
+	}
 </script>
 
 {#snippet body()}
-	<div class="relative size-12 shrink-0 overflow-hidden rounded-lg border">
+	<div
+		class="relative size-12 shrink-0 overflow-hidden rounded-lg border"
+		style:view-transition-name={morph.id === item.id && thumb ? 'card-thumb' : undefined}
+	>
 		<Thumb blob={thumb} alt={item.name} class="size-full" />
 		{#if selectable}
 			<div
@@ -39,7 +53,10 @@
 		{/if}
 	</div>
 	<div class="min-w-0 flex-1">
-		<p class="truncate text-sm font-medium">
+		<p
+			class="truncate text-sm font-medium"
+			style:view-transition-name={morph.id === item.id ? 'card-title' : undefined}
+		>
 			{item.name || 'Untitled item'}
 			{#if item.quantity > 1}
 				<span class="font-normal text-muted-foreground">×{item.quantity}</span>
@@ -73,6 +90,7 @@
 {:else}
 	<a
 		href="{base}/items/{item.id}"
+		onclick={startMorph}
 		class="flex items-center gap-3 rounded-xl border bg-card px-3 py-2 transition-shadow hover:shadow-md"
 	>
 		{@render body()}

@@ -2,14 +2,56 @@
 	import type { Snippet } from 'svelte';
 	import { page } from '$app/state';
 	import { base } from '$app/paths';
+	import { onNavigate } from '$app/navigation';
+	import { prefersReducedMotion } from 'svelte/motion';
 	import LayersIcon from '@lucide/svelte/icons/layers';
 	import SearchIcon from '@lucide/svelte/icons/search';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 	import ChartColumnIcon from '@lucide/svelte/icons/chart-column';
 	import { cn } from '$lib/utils.js';
+	import { morph } from '$lib/state/morph.svelte';
 	import SyncStatusBadge from './SyncStatusBadge.svelte';
 
 	let { children }: { children: Snippet } = $props();
+
+	function tabIndexFor(pathname: string): number {
+		const exact = tabs.findIndex((t) => t.exact && pathname === t.href);
+		// non-exact paths belong to the Collections tab, which owns everything else
+		return exact === -1 ? 0 : exact;
+	}
+
+	// Picks the flavour of the CSS View Transition (see layout.css):
+	//  - 'morph'   a card was tapped → it grows into its detail page
+	//  - 'forward' moving down the menu / drilling deeper → slide in from the right
+	//  - 'back'    moving up the menu / stepping back → slide in from the left
+	function navMode(from: URL, to: URL): 'morph' | 'forward' | 'back' {
+		if (morph.id) return 'morph';
+		if (morph.back) return 'back';
+		const fromTab = tabIndexFor(from.pathname);
+		const toTab = tabIndexFor(to.pathname);
+		if (fromTab !== toTab) return toTab > fromTab ? 'forward' : 'back';
+		const depth = (u: URL) => u.pathname.replace(/\/+$/, '').split('/').filter(Boolean).length;
+		return depth(to) < depth(from) ? 'back' : 'forward';
+	}
+
+	// Drive navigation with the View Transitions API where supported; browsers
+	// without it (or users who prefer reduced motion) just navigate instantly.
+	onNavigate((nav) => {
+		if (!document.startViewTransition || !nav.from || !nav.to || prefersReducedMotion.current) {
+			morph.clear();
+			return;
+		}
+		document.documentElement.dataset.nav = navMode(nav.from.url, nav.to.url);
+		morph.back = false; // one-shot hint, consumed
+		return new Promise((resolve) => {
+			const transition = document.startViewTransition(async () => {
+				resolve();
+				await nav.complete;
+			});
+			// drop the morph target once done so nothing lingers on the list view
+			transition.finished.finally(() => morph.clear());
+		});
+	});
 
 	const tabs = [
 		{ href: `${base}/`, label: 'Collections', icon: LayersIcon, exact: false },
@@ -68,11 +110,11 @@
 			<a
 				href={tab.href}
 				class={cn(
-					'flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors',
+					'flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors active:scale-95',
 					isActive(tab) ? 'text-primary' : 'text-muted-foreground'
 				)}
 			>
-				<tab.icon class="size-5" />
+				<tab.icon class={cn('size-5 transition-transform', isActive(tab) && '-translate-y-0.5')} />
 				{tab.label}
 			</a>
 		{/each}
