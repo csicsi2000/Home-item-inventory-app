@@ -70,7 +70,9 @@
 
 <div class="flex min-h-dvh">
 	<!-- desktop sidebar -->
-	<aside class="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r bg-sidebar md:flex">
+	<aside
+		class="sticky top-0 hidden h-dvh w-56 shrink-0 flex-col border-r bg-sidebar md:flex [view-transition-name:app-sidebar]"
+	>
 		<a href="{base}/" class="flex items-center gap-2 px-5 py-5">
 			<LayersIcon class="size-6 text-primary" />
 			<span class="text-lg font-semibold tracking-tight">Collections</span>
@@ -103,7 +105,7 @@
 
 	<!-- mobile bottom tab bar -->
 	<nav
-		class="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden"
+		class="fixed inset-x-0 bottom-0 z-40 flex border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:hidden [view-transition-name:bottom-nav]"
 		style="padding-bottom: env(safe-area-inset-bottom)"
 	>
 		{#each tabs as tab (tab.href)}

@@ -178,6 +178,19 @@ html[data-nav='back']::view-transition-new(root) {
 }
 /* 'morph' keeps the default cross-fade on root so the growing card leads */
 
+/* pinned chrome (mobile tab bar, desktop sidebar) never moves — snapshot it
+   apart from root so the page slide doesn't drag it along, and keep it still */
+::view-transition-group(bottom-nav),
+::view-transition-image-pair(bottom-nav),
+::view-transition-old(bottom-nav),
+::view-transition-new(bottom-nav),
+::view-transition-group(app-sidebar),
+::view-transition-image-pair(app-sidebar),
+::view-transition-old(app-sidebar),
+::view-transition-new(app-sidebar) {
+	animation: none;
+}
+
 /* the card ↔ detail-page shared elements, each morphing to its new size +
    position: the whole card box (card-hero), its title/name text (card-title),
    the collection emoji (card-icon) and the item photo (card-thumb) */

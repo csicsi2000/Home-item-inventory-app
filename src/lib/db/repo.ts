@@ -18,9 +18,19 @@ let lastNow = 0;
  * Advancing by a millisecond when the clock hasn't moved keeps every version
  * distinct and keeps last-write-wins ordering meaningful.
  */
-export const now = () => {
+export const now = () => new Date(nowMs()).toISOString();
+
+/**
+ * The same instant as {@link now}, as epoch milliseconds.
+ *
+ * Anything comparing against a stamped timestamp must read the clock through
+ * here rather than `Date.now()`: bunched writes push this sequence into the raw
+ * clock's future, so a wall-clock reading can land *before* a row that was
+ * written moments ago.
+ */
+const nowMs = () => {
 	lastNow = Math.max(Date.now(), lastNow + 1);
-	return new Date(lastNow).toISOString();
+	return lastNow;
 };
 export const newId = () => crypto.randomUUID();
 
@@ -355,11 +365,15 @@ export async function purgeTombstones(
 	olderThanDays = 30,
 	orphanGraceDays = 2 * olderThanDays
 ): Promise<number> {
-	const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
+	// Measured on the write clock, not the wall clock: emptying the trash passes 0
+	// days, and a row deleted moments ago carries a timestamp the wall clock has
+	// not reached yet, so a `Date.now()` cutoff would leave it behind.
+	const t = nowMs();
+	const cutoff = new Date(t - olderThanDays * 86_400_000).toISOString();
 	// A photo row is only purged once removeDeletedPhotoObjects has cleared its
 	// object (which it signals by resetting uploaded to 0). The orphan cutoff is a
 	// backstop for objects the server never lets us delete.
-	const orphanCutoff = new Date(Date.now() - orphanGraceDays * 86_400_000).toISOString();
+	const orphanCutoff = new Date(t - orphanGraceDays * 86_400_000).toISOString();
 	let purged = 0;
 	await db.transaction('rw', [db.collections, db.items, db.photos], async () => {
 		for (const table of [db.collections, db.items] as const) {

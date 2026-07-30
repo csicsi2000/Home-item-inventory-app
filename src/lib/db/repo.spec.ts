@@ -301,6 +301,23 @@ describe('repo', () => {
 		expect(await db.items.get(item.id)).toBeUndefined();
 		expect(await db.photos.get(photo.id)).toBeDefined();
 	});
+
+	// Write timestamps step past the wall clock whenever writes bunch inside a
+	// millisecond, so a just-deleted row is stamped in Date.now()'s future.
+	// Emptying the trash measured its cutoff on the wall clock and skipped exactly
+	// those rows — the trash came back non-empty.
+	it('empties the trash even when writes have run ahead of the wall clock', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Vader' });
+		for (let i = 0; i < 2000; i++) now(); // drive the write clock ~2s ahead
+		await deleteItem(item.id);
+		await db.items.update(item.id, { dirty: 0 });
+		expect(Date.parse((await db.items.get(item.id))!.deletedAt!)).toBeGreaterThan(Date.now());
+
+		await purgeTombstones(0);
+
+		expect(await db.items.get(item.id)).toBeUndefined();
+	});
 	// updatedAt is the identity of a row version: the push clears `dirty` only when
 	// it still matches what was sent. Two writes in the same millisecond used to
 	// collide, so an edit made mid-flight was marked as pushed and never sent.
