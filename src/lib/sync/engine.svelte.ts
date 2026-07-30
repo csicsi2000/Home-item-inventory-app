@@ -6,6 +6,21 @@ import { hydrateMissingPhotos, removeDeletedPhotoObjects, uploadPendingPhotos } 
 import { purgeRevokedShares, refreshShareGrants } from './shares';
 import { TABLES, type DirtyRow, type RemoteRow, type TableSync } from './mapping';
 import { advanceCursor, keysetFilter, readCursor, sameCursor, type PullCursor } from './cursor';
+import {
+	TransientSyncError,
+	activeFailureKeys,
+	allFailureKeys,
+	blockTable,
+	classifyPushError,
+	clearFailures,
+	countFailures,
+	failureKey,
+	recordFailure,
+	reconcileFailures,
+	retryAllNow,
+	schemaBlockReason,
+	type PushError
+} from './failures';
 
 const PUSH_CHUNK = 400;
 const PULL_PAGE = 1000;
@@ -19,6 +34,9 @@ class SyncStatus {
 	pendingChanges = $state(0);
 	/** Sync works, but some feature is unavailable server-side (e.g. sharing). */
 	degraded = $state<string | null>(null);
+	/** Rows the server permanently refused; they no longer block the queue. */
+	blockedChanges = $state(0);
+	blockedReason = $state<string | null>(null);
 }
 
 export const syncStatus = new SyncStatus();
@@ -31,7 +49,8 @@ export type FetchPage = (
 	limit: number
 ) => Promise<RemoteRow[]>;
 
-export type UpsertRows = (table: string, rows: RemoteRow[]) => Promise<void>;
+/** Resolves to the server's complaint, or null on success — never throws. */
+export type UpsertRows = (table: string, rows: RemoteRow[]) => Promise<PushError | null>;
 
 const supabaseFetchPage: FetchPage = async (table, cursor, limit) => {
 	const { data, error } = await supabase!
@@ -46,24 +65,130 @@ const supabaseFetchPage: FetchPage = async (table, cursor, limit) => {
 };
 
 const supabaseUpsert: UpsertRows = async (table, rows) => {
-	const { error } = await supabase!.from(table).upsert(rows, { onConflict: 'id' });
-	if (error) throw new Error(`push ${table}: ${error.message}`);
+	const { error, status } = await supabase!.from(table).upsert(rows, { onConflict: 'id' });
+	if (!error) return null;
+	return { code: error.code, message: error.message, status };
 };
 
-// ---------- push / pull ----------
+// ---------- push ----------
+
+/**
+ * Mark rows as pushed. A row that succeeds also leaves quarantine — otherwise an
+ * expired-then-successful retry would keep warning the user forever.
+ */
+async function commit(
+	table: TableSync,
+	rows: DirtyRow[],
+	quarantined: Set<string>
+): Promise<void> {
+	for (const entry of rows) await table.clearDirty(entry.id, entry.updatedAt);
+	if (!quarantined.size) return;
+	await clearFailures(
+		table.remote,
+		rows.map((r) => r.id).filter((id) => quarantined.has(failureKey(table.remote, id)))
+	);
+}
+
+/**
+ * Narrow a rejected chunk down to the rows the server actually objects to, by
+ * halving. O(k·log n) requests for k bad rows instead of n.
+ *
+ * Halves keep their relative order, so `collections` stays parents-first. A child
+ * that ends up isolated from its parent fails its own RLS parent check, gets
+ * quarantined, and succeeds on the next sync once the parent has landed.
+ */
+async function bisectPush(
+	table: TableSync,
+	chunk: DirtyRow[],
+	upsert: UpsertRows,
+	now: string,
+	quarantined: Set<string>
+): Promise<number> {
+	if (!chunk.length) return 0;
+
+	if (chunk.length === 1) {
+		const [entry] = chunk;
+		const error = await upsert(table.remote, [entry.row]);
+		if (!error) {
+			await commit(table, chunk, quarantined);
+			return 1;
+		}
+		if (classifyPushError(error) === 'transient') {
+			throw new TransientSyncError(`push ${table.remote}: ${error.message}`);
+		}
+		await recordFailure(table.remote, entry.id, entry.updatedAt, error, now);
+		return 0;
+	}
+
+	const mid = Math.ceil(chunk.length / 2);
+	let pushed = 0;
+	for (const half of [chunk.slice(0, mid), chunk.slice(mid)]) {
+		const error = await upsert(
+			table.remote,
+			half.map((c) => c.row)
+		);
+		if (!error) {
+			await commit(table, half, quarantined);
+			pushed += half.length;
+			continue;
+		}
+		const kind = classifyPushError(error);
+		if (kind === 'transient') {
+			throw new TransientSyncError(`push ${table.remote}: ${error.message}`);
+		}
+		if (kind === 'schema') {
+			await blockTable(table.remote, error, now);
+			break;
+		}
+		pushed += await bisectPush(table, half, upsert, now, quarantined);
+	}
+	return pushed;
+}
 
 export async function push(upsert: UpsertRows = supabaseUpsert): Promise<number> {
+	const now = new Date().toISOString();
+
+	const perTable = new Map<string, DirtyRow[]>();
+	for (const table of TABLES) perTable.set(table.remote, await table.dirtyRows());
+
+	// a row edited since it was quarantined is a new attempt at a new problem
+	await reconcileFailures(
+		[...perTable].flatMap(([remote, rows]) =>
+			rows.map((r) => ({ table: remote, id: r.id, updatedAt: r.updatedAt }))
+		)
+	);
+	const blocked = await activeFailureKeys(now);
+	const quarantined = await allFailureKeys();
+
 	let pushed = 0;
 	for (const table of TABLES) {
-		const dirty = await table.dirtyRows();
+		if (await schemaBlockReason(table.remote, now)) continue;
+		const dirty = perTable
+			.get(table.remote)!
+			.filter((r) => !blocked.has(failureKey(table.remote, r.id)));
+
 		for (let offset = 0; offset < dirty.length; offset += PUSH_CHUNK) {
-			const chunk: DirtyRow[] = dirty.slice(offset, offset + PUSH_CHUNK);
-			await upsert(
+			const chunk = dirty.slice(offset, offset + PUSH_CHUNK);
+			const error = await upsert(
 				table.remote,
 				chunk.map((c) => c.row)
 			);
-			for (const entry of chunk) await table.clearDirty(entry.id, entry.updatedAt);
-			pushed += chunk.length;
+			if (!error) {
+				await commit(table, chunk, quarantined);
+				pushed += chunk.length;
+				continue;
+			}
+			const kind = classifyPushError(error);
+			if (kind === 'transient') {
+				throw new TransientSyncError(`push ${table.remote}: ${error.message}`);
+			}
+			if (kind === 'schema') {
+				// every row of the table fails identically — don't bisect 400 rows to
+				// rediscover that on each one
+				await blockTable(table.remote, error, now);
+				break;
+			}
+			pushed += await bisectPush(table, chunk, upsert, now, quarantined);
 		}
 	}
 	return pushed;
@@ -126,6 +251,16 @@ async function fetchRemoteCursor(): Promise<string | null> {
 	} catch {
 		return null;
 	}
+}
+
+/** Whichever table-wide block is in force, for the badge. */
+async function firstBlockedReason(): Promise<string | null> {
+	const now = new Date().toISOString();
+	for (const table of TABLES) {
+		const reason = await schemaBlockReason(table.remote, now);
+		if (reason) return `${table.remote}: ${reason}`;
+	}
+	return null;
 }
 
 async function countPending(): Promise<number> {
@@ -192,12 +327,22 @@ export async function syncNow(): Promise<void> {
 		syncStatus.error = err instanceof Error ? err.message : String(err);
 	} finally {
 		syncStatus.pendingChanges = await countPending().catch(() => 0);
+		syncStatus.blockedChanges = await countFailures().catch(() => 0);
+		syncStatus.blockedReason = await firstBlockedReason().catch(() => null);
 		syncing = false;
 		if (queued) {
 			queued = false;
 			void syncNow();
 		}
 	}
+}
+
+/** Lift every quarantine and try again right away. */
+export async function retryBlocked(): Promise<void> {
+	await retryAllNow();
+	syncStatus.blockedChanges = 0;
+	syncStatus.blockedReason = null;
+	await syncNow();
 }
 
 let started = false;

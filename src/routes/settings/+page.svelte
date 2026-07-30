@@ -12,7 +12,9 @@
 	import SyncStatusBadge from '$lib/components/SyncStatusBadge.svelte';
 	import { syncConfigured } from '$lib/sync/supabase';
 	import { auth, signInWithGoogle, signInWithMagicLink, signOut } from '$lib/sync/auth.svelte';
-	import { syncStatus, syncNow } from '$lib/sync/engine.svelte';
+	import { syncStatus, syncNow, retryBlocked } from '$lib/sync/engine.svelte';
+	import { MAX_ATTEMPTS, listFailures } from '$lib/sync/failures';
+	import type { SyncFailure } from '$lib/db/types';
 	import { settings } from '$lib/state/settings.svelte';
 	import { buildBackup, parseBackup, importBackup, ImportError } from '$lib/db/backup';
 	import { db } from '$lib/db/schema';
@@ -39,6 +41,20 @@
 	let webgpuAvailable = $state<boolean | null>(null);
 	let precaching = $state(false);
 	let modelStatus = $state<import('$lib/ml/precache').PrecacheStatus | null>(null);
+	let blockedFailures = $state<SyncFailure[]>([]);
+
+	// re-read whenever the engine's blocked count moves
+	$effect(() => {
+		void syncStatus.blockedChanges;
+		listFailures()
+			.then((rows) => (blockedFailures = rows))
+			.catch(() => (blockedFailures = []));
+	});
+
+	async function retryFailed() {
+		await retryBlocked();
+		blockedFailures = await listFailures().catch(() => []);
+	}
 
 	$effect(() => {
 		const gpu = (navigator as unknown as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
@@ -254,6 +270,37 @@
 					</div>
 					{#if syncStatus.error}
 						<p class="text-xs text-destructive">{syncStatus.error}</p>
+					{/if}
+					{#if syncStatus.degraded}
+						<p class="text-xs text-amber-600 dark:text-amber-500">{syncStatus.degraded}</p>
+					{/if}
+					{#if blockedFailures.length || syncStatus.blockedReason}
+						<div class="grid gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+							<p class="text-sm font-medium text-amber-700 dark:text-amber-400">
+								Some changes couldn't be saved to the cloud
+							</p>
+							<p class="text-xs text-muted-foreground">
+								They're still on this device and nothing was lost. The rest of your collection keeps
+								syncing.
+							</p>
+							{#if syncStatus.blockedReason}
+								<p class="text-xs text-muted-foreground">{syncStatus.blockedReason}</p>
+							{/if}
+							{#if blockedFailures.length}
+								<ul class="grid gap-1 text-xs text-muted-foreground">
+									{#each blockedFailures as failure (failure.key)}
+										<li class="truncate">
+											<span class="font-medium">{failure.table}</span>
+											· {failure.message}
+											{#if failure.attempts >= MAX_ATTEMPTS}(gave up after {failure.attempts} tries){/if}
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							<Button size="sm" variant="outline" class="justify-self-start" onclick={retryFailed}>
+								Try again
+							</Button>
+						</div>
 					{/if}
 				{:else}
 					<div class="grid gap-3 sm:max-w-sm">
