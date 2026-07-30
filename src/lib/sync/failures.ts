@@ -183,10 +183,20 @@ export async function retryAllNow(): Promise<void> {
 	if (blocks.length) await db.meta.bulkDelete(blocks.map((b) => b.key));
 }
 
+/**
+ * Pseudo-tables used by the photo queue. A failed *download* means data we
+ * couldn't fetch, not a change we couldn't save, so it must not be reported as
+ * "changes that couldn't sync".
+ */
+const FETCH_ONLY_TABLES = new Set(['photo-download']);
+
+const isUnsavedChange = (f: SyncFailure) => !FETCH_ONLY_TABLES.has(f.table);
+
+/** Quarantined local changes, for the "couldn't be saved" UI. */
 export async function listFailures(): Promise<SyncFailure[]> {
-	return db.syncFailures.orderBy('key').toArray();
+	return (await db.syncFailures.orderBy('key').toArray()).filter(isUnsavedChange);
 }
 
 export async function countFailures(): Promise<number> {
-	return db.syncFailures.count();
+	return (await listFailures()).length;
 }

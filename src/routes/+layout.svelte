@@ -7,6 +7,7 @@
 	import DuplicateAlert from '$lib/components/DuplicateAlert.svelte';
 	import { onMount } from 'svelte';
 	import { purgeTombstones } from '$lib/db/repo';
+	import { maybeRequestPersistence } from '$lib/db/quota.svelte';
 	import { initAuth } from '$lib/sync/auth.svelte';
 	import { startSyncEngine } from '$lib/sync/engine.svelte';
 	import { initPwa } from '$lib/pwa.svelte';
@@ -16,6 +17,9 @@
 	onMount(() => {
 		// housekeeping: hard-delete old, already-synced tombstones
 		purgeTombstones().catch(() => {});
+		// an origin the browser hasn't marked persistent can be evicted wholesale,
+		// which in a local-first app is total data loss
+		maybeRequestPersistence();
 		initAuth();
 		const stopSync = startSyncEngine();
 		initPwa();

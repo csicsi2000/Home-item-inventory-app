@@ -18,6 +18,7 @@
 	import { settings } from '$lib/state/settings.svelte';
 	import { buildBackup, parseBackup, importBackup, ImportError } from '$lib/db/backup';
 	import { db } from '$lib/db/schema';
+	import { ensurePersisted, refreshStorageEstimate, storage } from '$lib/db/quota.svelte';
 	import { itemsToCsv } from '$lib/csv';
 	import { toast } from 'svelte-sonner';
 	import DownloadIcon from '@lucide/svelte/icons/download';
@@ -97,6 +98,7 @@
 
 	$effect(() => {
 		navigator.storage?.persisted?.().then((v) => (persisted = v));
+		refreshStorageEstimate();
 	});
 
 	$effect(() => {
@@ -140,7 +142,7 @@
 	}
 
 	async function requestPersist() {
-		const granted = await navigator.storage?.persist?.();
+		const granted = await ensurePersisted();
 		persisted = granted ?? false;
 		toast[granted ? 'success' : 'info'](
 			granted ? 'Storage is now protected from eviction' : 'Browser declined persistent storage'
@@ -577,6 +579,15 @@
 					{persisted ? 'Storage protected' : 'Protect local storage'}
 				</Button>
 			</div>
+			{#if storage.usedFraction !== null}
+				<p class="text-xs text-muted-foreground">
+					This device is using about {Math.round(storage.usedFraction * 100)}% of the storage the
+					browser has allotted.
+					{#if storage.full}
+						<span class="text-destructive">It's full — new photos can't be saved.</span>
+					{/if}
+				</p>
+			{/if}
 			<p class="text-xs text-muted-foreground">
 				The export contains collections and item details (photos stay in the app / cloud).
 				Import merges a backup into this device — newer entries win, so older backups never

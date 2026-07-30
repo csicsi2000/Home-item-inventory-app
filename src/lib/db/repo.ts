@@ -275,15 +275,27 @@ export async function primaryPhoto(itemId: UUID): Promise<ItemPhoto | undefined>
 /** Hard-delete tombstones that are old and already pushed (dirty=0). */
 export async function purgeTombstones(olderThanDays = 30): Promise<number> {
 	const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
+	// A photo row is the only record of its storage object's path. Purging it
+	// before removeDeletedPhotoObjects has cleared the object (which it signals by
+	// resetting uploaded to 0) would orphan that object in the bucket forever.
+	// The doubled cutoff is a backstop for objects the server never lets us delete.
+	const orphanCutoff = new Date(Date.now() - 2 * olderThanDays * 86_400_000).toISOString();
 	let purged = 0;
 	await db.transaction('rw', [db.collections, db.items, db.photos], async () => {
-		for (const table of [db.collections, db.items, db.photos] as const) {
+		for (const table of [db.collections, db.items] as const) {
 			purged += await table
-				.filter(
-					(row) => !!row.deletedAt && row.deletedAt < cutoff && row.dirty === 0
-				)
+				.filter((row) => !!row.deletedAt && row.deletedAt < cutoff && row.dirty === 0)
 				.delete();
 		}
+		purged += await db.photos
+			.filter(
+				(row) =>
+					!!row.deletedAt &&
+					row.deletedAt < cutoff &&
+					row.dirty === 0 &&
+					(row.uploaded === 0 || !row.storagePath || row.deletedAt < orphanCutoff)
+			)
+			.delete();
 	});
 	return purged;
 }

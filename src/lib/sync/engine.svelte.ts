@@ -311,9 +311,11 @@ export async function syncNow(): Promise<void> {
 
 		await uploadPendingPhotos(userId);
 		stillSameUser();
-		await removeDeletedPhotoObjects();
-		stillSameUser();
 		await push();
+		stillSameUser();
+		// after push, never before: removing a storage object while its tombstone
+		// is still local leaves other devices pointing at nothing
+		await removeDeletedPhotoObjects();
 		stillSameUser();
 
 		// change detection: when the server-side max cursor hasn't moved since
