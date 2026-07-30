@@ -38,7 +38,7 @@ The app runs fully **local-only** with no configuration. Cloud sync needs the tw
 ### 1. Supabase (optional — enables sync)
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. In **SQL Editor**, run the whole of [`supabase/schema.sql`](supabase/schema.sql) (tables, RLS policies, storage bucket).
+2. In **SQL Editor**, run the whole of [`supabase/schema.sql`](supabase/schema.sql). That file is the **complete end state** — tables, sharing, RLS policies, functions and the storage bucket. You do *not* need anything from [`supabase/migrations/`](supabase/migrations); those files exist only to upgrade a project created against an older version of the schema.
 3. In **Authentication → Providers**, enable **Google** (and Email, which is on by default).
 4. In **Authentication → URL Configuration**:
    - Site URL: `https://<your-user>.github.io/card_collection_scanner/`

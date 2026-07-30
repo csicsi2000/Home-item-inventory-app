@@ -19,6 +19,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import BarcodeIcon from '@lucide/svelte/icons/barcode';
 	import Loader2Icon from '@lucide/svelte/icons/loader-2';
+	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
 	import { toast } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
@@ -181,6 +182,16 @@
 				<Loader2Icon class="size-3.5 animate-spin" />
 				Processing {processQueue.pending} in background
 			</span>
+		{:else if processQueue.failed}
+			<button
+				type="button"
+				class="flex items-center gap-1.5 text-xs text-amber-600 underline-offset-2 hover:underline dark:text-amber-500"
+				onclick={() => processQueue.retryFailed()}
+			>
+				<TriangleAlertIcon class="size-3.5" />
+				Couldn't read {processQueue.failed}
+				{processQueue.failed === 1 ? 'photo' : 'photos'} — retry
+			</button>
 		{/if}
 	</div>
 

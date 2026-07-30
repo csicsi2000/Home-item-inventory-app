@@ -93,13 +93,41 @@ export async function leaveShare(collectionId: UUID): Promise<void> {
 
 // ---------- grants cache (grantee side, refreshed by the sync engine) ----------
 
-/** Rebuild the local cache of shares that target me. */
-export async function refreshShareGrants(): Promise<void> {
-	if (!supabase) return;
+/**
+ * True once we've seen a "collection_shares doesn't exist" error, so the warning
+ * is logged once instead of on every sync tick.
+ */
+let sharingMissingWarned = false;
+
+/** PostgREST/Postgres codes for "that table isn't there". */
+const isMissingTable = (code: string | undefined): boolean =>
+	code === '42P01' || code === 'PGRST205';
+
+/**
+ * Rebuild the local cache of shares that target me.
+ *
+ * Returns `false` when the sharing tables aren't installed — a project
+ * bootstrapped from an older schema.sql. That must NOT throw: it runs inside
+ * the sync pipeline, and failing here would abort the pull, the photo
+ * hydration and the tombstone purge on every single sync.
+ */
+export async function refreshShareGrants(): Promise<boolean> {
+	if (!supabase) return true;
 	const email = myEmail();
 	const userId = myUserId();
-	if (!email || !userId) return;
+	if (!email || !userId) return true;
 	const { data, error } = await supabase.from('collection_shares').select('*');
+	if (error && isMissingTable(error.code)) {
+		if (!sharingMissingWarned) {
+			sharingMissingWarned = true;
+			console.warn(
+				'collection_shares is missing — sharing is unavailable until the Supabase schema is updated'
+			);
+		}
+		// leave db.shares alone: clearing it would drop grants this device is
+		// still using offline
+		return false;
+	}
 	if (error) throw new Error(`pull collection_shares: ${error.message}`);
 	const grants: ShareGrant[] = (data ?? [])
 		.filter(
@@ -118,6 +146,7 @@ export async function refreshShareGrants(): Promise<void> {
 		await db.shares.clear();
 		if (grants.length) await db.shares.bulkPut(grants);
 	});
+	return true;
 }
 
 // ---------- role resolution (pure, works offline off the local cache) ----------

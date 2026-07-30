@@ -2,7 +2,7 @@
 	import * as Popover from '$lib/components/ui/popover';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { syncStatus, syncNow } from '$lib/sync/engine.svelte';
+	import { syncStatus, syncNow, retryBlocked } from '$lib/sync/engine.svelte';
 	import { auth, signInWithGoogle, signInWithMagicLink, signOut } from '$lib/sync/auth.svelte';
 	import { cn } from '$lib/utils.js';
 	import { toast } from 'svelte-sonner';
@@ -28,7 +28,9 @@
 			case 'signed-out':
 				return 'bg-muted-foreground';
 			default:
-				return syncStatus.pendingChanges > 0 ? 'bg-amber-500' : 'bg-emerald-500';
+				return syncStatus.pendingChanges > 0 || syncStatus.blockedChanges > 0
+					? 'bg-amber-500'
+					: 'bg-emerald-500';
 		}
 	});
 
@@ -88,7 +90,36 @@
 						{#if syncStatus.error}
 							<p class="mt-1 text-xs text-destructive">{syncStatus.error}</p>
 						{/if}
+						{#if syncStatus.degraded}
+							<p class="mt-1 text-xs text-amber-600 dark:text-amber-500">{syncStatus.degraded}</p>
+						{/if}
+						{#if syncStatus.blockedReason}
+							<p class="mt-1 text-xs text-amber-600 dark:text-amber-500">
+								{syncStatus.blockedReason}
+							</p>
+						{/if}
 					</div>
+					{#if syncStatus.blockedChanges > 0}
+						<div class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+							<p class="text-xs text-amber-700 dark:text-amber-400">
+								{syncStatus.blockedChanges === 1
+									? "1 change couldn't be saved to the cloud"
+									: `${syncStatus.blockedChanges} changes couldn't be saved to the cloud`}. Everything
+								else is syncing normally.
+							</p>
+							<Button
+								size="sm"
+								variant="outline"
+								class="mt-2 w-full"
+								onclick={() => {
+									retryBlocked();
+									open = false;
+								}}
+							>
+								Try again
+							</Button>
+						</div>
+					{/if}
 					<Button
 						size="sm"
 						variant="outline"

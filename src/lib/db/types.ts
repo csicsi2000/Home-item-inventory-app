@@ -135,10 +135,65 @@ export interface ItemEmbedding {
 	dirty: 0 | 1;
 }
 
-/** Per-table pull cursor for the sync engine. */
+/**
+ * Per-table pull cursor for the sync engine.
+ *
+ * `server_updated_at` comes from now(), the transaction timestamp, so many rows
+ * share one value — the cursor is the composite key (lastPulledAt, lastPulledId)
+ * and paging compares them in that order. `lastPulledId` is absent on cursors
+ * written before keyset pagination existed.
+ */
 export interface SyncState {
 	table: string;
 	lastPulledAt: string;
+	lastPulledId?: string | null;
+}
+
+/**
+ * A row that the server permanently refused, so it stops blocking the push
+ * queue. The row itself stays `dirty: 1` — nothing is ever discarded.
+ */
+export interface SyncFailure {
+	/** `${table}:${rowId}` */
+	key: string;
+	table: string;
+	rowId: UUID;
+	/** The row version that failed; a newer edit clears the quarantine. */
+	failedUpdatedAt: string;
+	attempts: number;
+	/** ISO timestamp; the row is skipped until now() passes this. */
+	nextAttemptAt: string;
+	code: string | null;
+	message: string;
+}
+
+export type MlStage = 'barcode' | 'ocr' | 'embedding';
+
+/**
+ * A queued post-save recognition job, persisted so it survives a tab close and
+ * resumes when the app (or the network) comes back. Keyed by photoId, which
+ * makes re-enqueueing the same photo a no-op.
+ */
+export interface MlJob {
+	id: UUID;
+	itemId: UUID;
+	/**
+	 * Stages still to run. Tracked per stage because ocrStage appends to
+	 * item.ocrText — re-running a whole job to retry one stage would duplicate
+	 * the recognized text.
+	 */
+	remaining: MlStage[];
+	status: 'pending' | 'running' | 'failed';
+	attempts: number;
+	nextAttemptAt: string;
+	lastError: string | null;
+	createdAt: string;
+}
+
+/** Small key/value store for device-scoped bookkeeping (e.g. last account). */
+export interface MetaRow {
+	key: string;
+	value: string;
 }
 
 export type DuplicateVerdict =

@@ -5,6 +5,7 @@ import { type OcrOutcome } from './ocr';
 import { analyzePhoto } from './analyze';
 import { toast } from 'svelte-sonner';
 import { base } from '$app/paths';
+import { goto } from '$app/navigation';
 import { settings } from '$lib/state/settings.svelte';
 
 /** Post-save stage: read the text on the new photo, store it, auto-name placeholders. */
@@ -28,9 +29,9 @@ export async function ocrStage(itemId: UUID, photoId: UUID): Promise<void> {
 		toast.success(`Named “${suggestedName}” from the photo text`, {
 			action: {
 				label: 'Edit',
-				onClick: () => {
-					location.href = `${base}/items/${itemId}`;
-				}
+				// client-side navigation: a location assignment reboots the SPA,
+				// throwing away the running recognition queue and every live query
+				onClick: () => void goto(`${base}/items/${itemId}`)
 			}
 		});
 	}
