@@ -5,6 +5,15 @@ import { supabase } from './supabase';
 class AuthState {
 	session = $state<Session | null>(null);
 	ready = $state(false);
+	/**
+	 * Who is signed in, as a plain value.
+	 *
+	 * Effects must depend on this rather than on `session`: Supabase mints a new
+	 * session object on every TOKEN_REFRESHED (roughly hourly), and a `$state`
+	 * object's identity change would re-run a full sync each time. A `$derived`
+	 * only propagates when the value actually differs.
+	 */
+	userId = $derived(this.session?.user.id ?? null);
 }
 
 export const auth = new AuthState();
@@ -21,8 +30,12 @@ export function initAuth(): void {
 		auth.session = data.session;
 		auth.ready = true;
 	});
-	supabase.auth.onAuthStateChange((_event, session) => {
+	supabase.auth.onAuthStateChange((event, session) => {
+		// getSession() above already seeds the initial value; INITIAL_SESSION would
+		// otherwise fire a second, redundant update on boot
+		if (event === 'INITIAL_SESSION') return;
 		auth.session = session;
+		auth.ready = true;
 	});
 }
 

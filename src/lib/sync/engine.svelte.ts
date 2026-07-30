@@ -21,6 +21,7 @@ import {
 	schemaBlockReason,
 	type PushError
 } from './failures';
+import { assertAccount } from './reset';
 
 const PUSH_CHUNK = 400;
 const PULL_PAGE = 1000;
@@ -276,6 +277,14 @@ async function countPending(): Promise<number> {
 let syncing = false;
 let queued = false;
 
+/** Signals that the signed-in user changed mid-run; not an error to report. */
+class SyncAborted extends Error {
+	constructor() {
+		super('sync aborted: account changed');
+		this.name = 'SyncAborted';
+	}
+}
+
 export async function syncNow(): Promise<void> {
 	if (!supabase || !auth.session) return;
 	if (syncing) {
@@ -286,9 +295,26 @@ export async function syncNow(): Promise<void> {
 	syncStatus.state = 'syncing';
 	syncStatus.error = null;
 	try {
-		await uploadPendingPhotos(auth.session.user.id);
+		const userId = auth.session.user.id;
+		// a sign-out or account switch part-way through a six-stage run would
+		// otherwise surface as a raw "JWT expired" from whichever stage was in flight
+		const stillSameUser = () => {
+			if (auth.userId !== userId) throw new SyncAborted();
+		};
+
+		// must run before anything uploads: never push one account's data under
+		// another account's JWT
+		if (await assertAccount(userId)) {
+			console.info('signed in as a different account — cleared the previous local copy');
+		}
+		stillSameUser();
+
+		await uploadPendingPhotos(userId);
+		stillSameUser();
 		await removeDeletedPhotoObjects();
+		stillSameUser();
 		await push();
+		stillSameUser();
 
 		// change detection: when the server-side max cursor hasn't moved since
 		// the last pull, skip pulling every table (and the photo scans) entirely
@@ -298,6 +324,7 @@ export async function syncNow(): Promise<void> {
 
 		if (!unchanged) {
 			await pull();
+			stillSameUser();
 			const sharingAvailable = await refreshShareGrants();
 			syncStatus.degraded = sharingAvailable
 				? null
@@ -322,9 +349,13 @@ export async function syncNow(): Promise<void> {
 		syncStatus.state = 'idle';
 		syncStatus.lastSyncAt = new Date().toISOString();
 	} catch (err) {
-		console.warn('sync failed', err);
-		syncStatus.state = navigator.onLine === false ? 'offline' : 'error';
-		syncStatus.error = err instanceof Error ? err.message : String(err);
+		if (err instanceof SyncAborted) {
+			syncStatus.state = auth.session ? 'idle' : 'signed-out';
+		} else {
+			console.warn('sync failed', err);
+			syncStatus.state = navigator.onLine === false ? 'offline' : 'error';
+			syncStatus.error = err instanceof Error ? err.message : String(err);
+		}
 	} finally {
 		syncStatus.pendingChanges = await countPending().catch(() => 0);
 		syncStatus.blockedChanges = await countFailures().catch(() => 0);
@@ -348,19 +379,22 @@ export async function retryBlocked(): Promise<void> {
 let started = false;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-export function startSyncEngine(): void {
-	if (started || !syncConfigured || typeof window === 'undefined') return;
+/** Returns a teardown; call it when the app shell unmounts. */
+export function startSyncEngine(): () => void {
+	if (started || !syncConfigured || typeof window === 'undefined') return () => {};
 	started = true;
 
 	// keep the pending-changes badge fresh + push soon after local writes
-	onItemsChanged(() => {
+	const unsubscribeItems = onItemsChanged(() => {
 		clearTimeout(debounceTimer);
 		debounceTimer = setTimeout(() => void syncNow(), 5000);
 		void countPending().then((n) => (syncStatus.pendingChanges = n));
 	});
 
-	window.addEventListener('online', () => void syncNow());
-	setInterval(
+	const onOnline = () => void syncNow();
+	window.addEventListener('online', onOnline);
+
+	const interval = setInterval(
 		() => {
 			if (!document.hidden) void syncNow();
 		},
@@ -369,10 +403,11 @@ export function startSyncEngine(): void {
 
 	void countPending().then((n) => (syncStatus.pendingChanges = n));
 
-	// first sync as soon as we know who's signed in
-	$effect.root(() => {
+	// first sync as soon as we know who's signed in. Depends on auth.userId, not
+	// auth.session, so an hourly token refresh doesn't trigger a full sync.
+	const disposeEffect = $effect.root(() => {
 		$effect(() => {
-			if (auth.session) {
+			if (auth.userId) {
 				syncStatus.state = 'syncing';
 				void syncNow();
 			} else if (auth.ready) {
@@ -380,4 +415,13 @@ export function startSyncEngine(): void {
 			}
 		});
 	});
+
+	return () => {
+		unsubscribeItems();
+		window.removeEventListener('online', onOnline);
+		clearInterval(interval);
+		clearTimeout(debounceTimer);
+		disposeEffect();
+		started = false;
+	};
 }

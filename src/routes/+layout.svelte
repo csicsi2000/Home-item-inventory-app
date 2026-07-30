@@ -17,8 +17,9 @@
 		// housekeeping: hard-delete old, already-synced tombstones
 		purgeTombstones().catch(() => {});
 		initAuth();
-		startSyncEngine();
+		const stopSync = startSyncEngine();
 		initPwa();
+		return stopSync;
 	});
 </script>
 

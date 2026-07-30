@@ -62,6 +62,17 @@ export function ensureIndex(): Promise<MiniSearch<SearchDoc>> {
 	return building;
 }
 
+/**
+ * Drop the index so the next search rebuilds from Dexie. The incremental
+ * onItemsChanged hook only touches the ids it is handed, so a wholesale wipe
+ * (switching accounts) would otherwise leave the previous account's items
+ * searchable.
+ */
+export function resetIndex(): void {
+	index = null;
+	building = null;
+}
+
 export interface SearchHit {
 	item: Item;
 	score: number;
