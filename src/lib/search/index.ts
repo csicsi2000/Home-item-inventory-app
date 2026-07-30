@@ -31,6 +31,8 @@ function toDoc(item: Item): SearchDoc {
 
 let index: MiniSearch<SearchDoc> | null = null;
 let building: Promise<MiniSearch<SearchDoc>> | null = null;
+/** Detaches the incremental updater belonging to the current index. */
+let unsubscribe: (() => void) | null = null;
 
 async function build(): Promise<MiniSearch<SearchDoc>> {
 	const ms = new MiniSearch<SearchDoc>({
@@ -46,7 +48,7 @@ async function build(): Promise<MiniSearch<SearchDoc>> {
 	ms.addAll(items.map(toDoc));
 
 	// keep the index in sync with every later write
-	onItemsChanged(async (ids) => {
+	unsubscribe = onItemsChanged(async (ids) => {
 		for (const id of ids) {
 			const item = await db.items.get(id);
 			if (ms.has(id)) ms.discard(id);
@@ -58,7 +60,14 @@ async function build(): Promise<MiniSearch<SearchDoc>> {
 
 /** Build lazily on first search (~50ms for a few thousand items). */
 export function ensureIndex(): Promise<MiniSearch<SearchDoc>> {
-	building ??= build().then((ms) => (index = ms));
+	// A rejected build must not be cached: `building` would stay rejected and
+	// every later search would fail with the original error for the whole session.
+	building ??= build()
+		.then((ms) => (index = ms))
+		.catch((err) => {
+			building = null;
+			throw err;
+		});
 	return building;
 }
 
@@ -67,8 +76,14 @@ export function ensureIndex(): Promise<MiniSearch<SearchDoc>> {
  * onItemsChanged hook only touches the ids it is handed, so a wholesale wipe
  * (switching accounts) would otherwise leave the previous account's items
  * searchable.
+ *
+ * Detaching the updater matters as much as dropping the index: each build
+ * registered a listener, so every reset left another one behind doing a Dexie
+ * read per changed item to maintain an index nothing can reach any more.
  */
 export function resetIndex(): void {
+	unsubscribe?.();
+	unsubscribe = null;
 	index = null;
 	building = null;
 }

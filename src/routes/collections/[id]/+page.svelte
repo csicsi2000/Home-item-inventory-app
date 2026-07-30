@@ -120,11 +120,20 @@
 			() => page.params.id
 		)
 	);
+	// Scoped to this collection's items on purpose: an unfiltered photos scan
+	// deserializes every thumbnail Blob in the database — every other collection
+	// included — on first paint and again after every photo write.
 	const thumbs = $derived(
 		live<Record<string, Blob | null>>(
 			async () => {
+				const itemIds = (await db.items
+					.where('collectionId')
+					.equals(page.params.id!)
+					.primaryKeys()) as string[];
 				const map: Record<string, Blob | null> = {};
 				await db.photos
+					.where('itemId')
+					.anyOf(itemIds)
 					.filter((p) => !p.deletedAt && !!p.thumb)
 					.each((p) => {
 						if (p.isPrimary || !(p.itemId in map)) map[p.itemId] = p.thumb;
