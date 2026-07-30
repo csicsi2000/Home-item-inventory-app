@@ -1,19 +1,14 @@
 import { db } from '$lib/db/schema';
 import { onItemsChanged, purgeTombstones } from '$lib/db/repo';
-import type { Collection, Item, ItemPhoto } from '$lib/db/types';
 import { supabase, syncConfigured } from './supabase';
 import { auth } from './auth.svelte';
 import { hydrateMissingPhotos, removeDeletedPhotoObjects, uploadPendingPhotos } from './imageQueue';
 import { purgeRevokedShares, refreshShareGrants } from './shares';
-
-type RemoteRow = Record<string, unknown>;
+import { TABLES, type DirtyRow, type RemoteRow, type TableSync } from './mapping';
+import { advanceCursor, keysetFilter, readCursor, sameCursor, type PullCursor } from './cursor';
 
 const PUSH_CHUNK = 400;
 const PULL_PAGE = 1000;
-const EPOCH = '1970-01-01T00:00:00Z';
-
-const iso = (value: unknown): string => new Date(String(value)).toISOString();
-const isoOrNull = (value: unknown): string | null => (value ? iso(value) : null);
 
 class SyncStatus {
 	state = $state<'disabled' | 'signed-out' | 'idle' | 'syncing' | 'error' | 'offline'>(
@@ -28,220 +23,45 @@ class SyncStatus {
 
 export const syncStatus = new SyncStatus();
 
-// ---------- table mappings ----------
+// ---------- transports (injectable so the algorithms are testable) ----------
 
-interface TableSync {
-	remote: string;
-	dirtyRows(): Promise<{ id: string; updatedAt: string; row: RemoteRow }[]>;
-	clearDirty(id: string, pushedUpdatedAt: string): Promise<void>;
-	applyRemote(row: RemoteRow): Promise<void>;
-}
+export type FetchPage = (
+	table: string,
+	cursor: PullCursor,
+	limit: number
+) => Promise<RemoteRow[]>;
 
-async function applyWithLww<T extends { updatedAt: string; dirty: 0 | 1 }>(
-	table: { get(id: string): Promise<T | undefined>; put(row: T): Promise<unknown> },
-	id: string,
-	remoteUpdatedAt: string,
-	merge: (local: T | undefined) => T
-): Promise<void> {
-	const local = await table.get(id);
-	// keep local edits that are newer and still unpushed
-	if (local && local.dirty === 1 && local.updatedAt >= remoteUpdatedAt) return;
-	await table.put(merge(local));
-}
+export type UpsertRows = (table: string, rows: RemoteRow[]) => Promise<void>;
 
-/**
- * Parents before children: the whole batch lands in one upsert statement,
- * and the RLS insert check on a subcollection looks up its parent row.
- */
-function sortParentsFirst(rows: Collection[]): Collection[] {
-	const pending = new Map(rows.map((c) => [c.id, c]));
-	const ordered: Collection[] = [];
-	const visit = (c: Collection) => {
-		if (!pending.delete(c.id)) return;
-		const parent = c.parentId ? pending.get(c.parentId) : undefined;
-		if (parent) visit(parent);
-		ordered.push(c);
-	};
-	for (const c of rows) visit(c);
-	return ordered;
-}
-
-const collectionsSync: TableSync = {
-	remote: 'collections',
-	async dirtyRows() {
-		const rows = sortParentsFirst(await db.collections.where('dirty').equals(1).toArray());
-		return rows.map((c) => ({
-			id: c.id,
-			updatedAt: c.updatedAt,
-			row: {
-				id: c.id,
-				name: c.name,
-				parent_id: c.parentId ?? null,
-				icon: c.icon,
-				description: c.description,
-				fields: c.fields ?? [],
-				display: c.display ?? null,
-				created_at: c.createdAt,
-				updated_at: c.updatedAt,
-				deleted_at: c.deletedAt
-			}
-		}));
-	},
-	async clearDirty(id, pushed) {
-		await db.collections
-			.where('id')
-			.equals(id)
-			.modify((c) => {
-				if (c.updatedAt === pushed) c.dirty = 0;
-			});
-	},
-	async applyRemote(row) {
-		const updatedAt = iso(row.updated_at);
-		await applyWithLww<Collection>(db.collections, String(row.id), updatedAt, () => ({
-			id: String(row.id),
-			ownerId: (row.user_id as string | null) ?? null,
-			name: String(row.name ?? ''),
-			parentId: (row.parent_id as string | null) ?? null,
-			icon: (row.icon as string | null) ?? null,
-			description: (row.description as string | null) ?? null,
-			fields: (row.fields as Collection['fields'] | null) ?? [],
-			display: (row.display as Collection['display'] | null) ?? null,
-			createdAt: iso(row.created_at),
-			updatedAt,
-			deletedAt: isoOrNull(row.deleted_at),
-			dirty: 0
-		}));
-	}
+const supabaseFetchPage: FetchPage = async (table, cursor, limit) => {
+	const { data, error } = await supabase!
+		.from(table)
+		.select('*')
+		.or(keysetFilter(cursor))
+		.order('server_updated_at', { ascending: true })
+		.order('id', { ascending: true })
+		.limit(limit);
+	if (error) throw new Error(`pull ${table}: ${error.message}`);
+	return (data ?? []) as RemoteRow[];
 };
 
-const itemsSync: TableSync = {
-	remote: 'items',
-	async dirtyRows() {
-		const rows = await db.items.where('dirty').equals(1).toArray();
-		return rows.map((i) => ({
-			id: i.id,
-			updatedAt: i.updatedAt,
-			row: {
-				id: i.id,
-				collection_id: i.collectionId,
-				name: i.name,
-				description: i.description,
-				quantity: i.quantity,
-				status: i.status,
-				condition: i.condition,
-				tags: i.tags,
-				barcode: i.barcode,
-				ocr_text: i.ocrText,
-				acquisition_price: i.acquisitionPrice,
-				acquisition_date: i.acquisitionDate,
-				sold_price: i.soldPrice,
-				sold_date: i.soldDate,
-				currency: i.currency,
-				custom_fields: i.customFields,
-				created_at: i.createdAt,
-				updated_at: i.updatedAt,
-				deleted_at: i.deletedAt
-			}
-		}));
-	},
-	async clearDirty(id, pushed) {
-		await db.items
-			.where('id')
-			.equals(id)
-			.modify((i) => {
-				if (i.updatedAt === pushed) i.dirty = 0;
-			});
-	},
-	async applyRemote(row) {
-		const updatedAt = iso(row.updated_at);
-		await applyWithLww<Item>(db.items, String(row.id), updatedAt, () => ({
-			id: String(row.id),
-			collectionId: String(row.collection_id),
-			name: String(row.name ?? ''),
-			description: (row.description as string | null) ?? null,
-			quantity: Number(row.quantity ?? 1),
-			status: (row.status as Item['status']) ?? 'owned',
-			condition: (row.condition as string | null) ?? null,
-			tags: (row.tags as string[] | null) ?? [],
-			barcode: (row.barcode as string | null) ?? null,
-			ocrText: (row.ocr_text as string | null) ?? null,
-			acquisitionPrice: row.acquisition_price === null ? null : Number(row.acquisition_price),
-			acquisitionDate: (row.acquisition_date as string | null) ?? null,
-			soldPrice: row.sold_price === null ? null : Number(row.sold_price),
-			soldDate: (row.sold_date as string | null) ?? null,
-			currency: (row.currency as string | null) ?? null,
-			customFields: (row.custom_fields as Record<string, string> | null) ?? {},
-			createdAt: iso(row.created_at),
-			updatedAt,
-			deletedAt: isoOrNull(row.deleted_at),
-			dirty: 0
-		}));
-	}
+const supabaseUpsert: UpsertRows = async (table, rows) => {
+	const { error } = await supabase!.from(table).upsert(rows, { onConflict: 'id' });
+	if (error) throw new Error(`push ${table}: ${error.message}`);
 };
-
-const photosSync: TableSync = {
-	remote: 'item_photos',
-	async dirtyRows() {
-		const rows = await db.photos.where('dirty').equals(1).toArray();
-		return rows.map((p) => ({
-			id: p.id,
-			updatedAt: p.updatedAt,
-			row: {
-				id: p.id,
-				item_id: p.itemId,
-				storage_path: p.storagePath,
-				is_primary: p.isPrimary,
-				width: p.width,
-				height: p.height,
-				created_at: p.createdAt,
-				updated_at: p.updatedAt,
-				deleted_at: p.deletedAt
-			}
-		}));
-	},
-	async clearDirty(id, pushed) {
-		await db.photos
-			.where('id')
-			.equals(id)
-			.modify((p) => {
-				if (p.updatedAt === pushed) p.dirty = 0;
-			});
-	},
-	async applyRemote(row) {
-		const updatedAt = iso(row.updated_at);
-		await applyWithLww<ItemPhoto>(db.photos, String(row.id), updatedAt, (local) => ({
-			id: String(row.id),
-			itemId: String(row.item_id),
-			// image data is local-only — keep whatever this device already has
-			blob: local?.blob ?? null,
-			thumb: local?.thumb ?? null,
-			storagePath: (row.storage_path as string | null) ?? local?.storagePath ?? null,
-			uploaded: row.storage_path ? 1 : (local?.uploaded ?? 0),
-			isPrimary: Boolean(row.is_primary),
-			width: Number(row.width ?? local?.width ?? 0),
-			height: Number(row.height ?? local?.height ?? 0),
-			createdAt: iso(row.created_at),
-			updatedAt,
-			deletedAt: isoOrNull(row.deleted_at),
-			dirty: 0
-		}));
-	}
-};
-
-const TABLES: TableSync[] = [collectionsSync, itemsSync, photosSync];
 
 // ---------- push / pull ----------
 
-async function push(): Promise<number> {
+export async function push(upsert: UpsertRows = supabaseUpsert): Promise<number> {
 	let pushed = 0;
 	for (const table of TABLES) {
 		const dirty = await table.dirtyRows();
 		for (let offset = 0; offset < dirty.length; offset += PUSH_CHUNK) {
-			const chunk = dirty.slice(offset, offset + PUSH_CHUNK);
-			const { error } = await supabase!
-				.from(table.remote)
-				.upsert(chunk.map((c) => c.row), { onConflict: 'id' });
-			if (error) throw new Error(`push ${table.remote}: ${error.message}`);
+			const chunk: DirtyRow[] = dirty.slice(offset, offset + PUSH_CHUNK);
+			await upsert(
+				table.remote,
+				chunk.map((c) => c.row)
+			);
 			for (const entry of chunk) await table.clearDirty(entry.id, entry.updatedAt);
 			pushed += chunk.length;
 		}
@@ -249,26 +69,42 @@ async function push(): Promise<number> {
 	return pushed;
 }
 
-async function pull(): Promise<number> {
+async function pullTable(
+	table: TableSync,
+	fetchPage: FetchPage,
+	pageSize: number
+): Promise<number> {
+	let cursor = readCursor(await db.syncState.get(table.remote));
 	let applied = 0;
-	for (const table of TABLES) {
-		let cursor = (await db.syncState.get(table.remote))?.lastPulledAt ?? EPOCH;
-		for (;;) {
-			const { data, error } = await supabase!
-				.from(table.remote)
-				.select('*')
-				.gt('server_updated_at', cursor)
-				.order('server_updated_at', { ascending: true })
-				.limit(PULL_PAGE);
-			if (error) throw new Error(`pull ${table.remote}: ${error.message}`);
-			if (!data?.length) break;
-			for (const row of data) await table.applyRemote(row as RemoteRow);
-			applied += data.length;
-			cursor = String((data[data.length - 1] as RemoteRow).server_updated_at);
-			await db.syncState.put({ table: table.remote, lastPulledAt: cursor });
-			if (data.length < PULL_PAGE) break;
-		}
+	for (;;) {
+		const rows = await fetchPage(table.remote, cursor, pageSize);
+		if (!rows.length) break;
+		for (const row of rows) await table.applyRemote(row);
+		applied += rows.length;
+
+		const next = advanceCursor(rows, cursor);
+		// A page that can't move the cursor (rows with no server_updated_at, e.g.
+		// a table whose trigger is missing) would otherwise loop forever.
+		if (sameCursor(next, cursor)) break;
+		cursor = next;
+		await db.syncState.put({
+			table: table.remote,
+			lastPulledAt: cursor.ts,
+			lastPulledId: cursor.id
+		});
+		// Keyset paging guarantees forward progress, so an empty page is the only
+		// termination signal we need — and unlike `rows.length < pageSize` it stays
+		// correct when the server caps rows below our requested limit.
 	}
+	return applied;
+}
+
+export async function pull(
+	fetchPage: FetchPage = supabaseFetchPage,
+	pageSize: number = PULL_PAGE
+): Promise<number> {
+	let applied = 0;
+	for (const table of TABLES) applied += await pullTable(table, fetchPage, pageSize);
 	return applied;
 }
 
@@ -277,12 +113,16 @@ const REMOTE_CURSOR_KEY = '_remote_cursor';
 /**
  * One cheap RPC that answers "did anything visible to me change?".
  * Null when the migration isn't applied yet → callers fall back to pulling.
+ *
+ * The raw string is returned deliberately: re-formatting it through Date would
+ * truncate Postgres microseconds, and a truncated-down cursor compares as
+ * "unchanged" against a write that landed in the same millisecond.
  */
 async function fetchRemoteCursor(): Promise<string | null> {
 	try {
 		const { data, error } = await supabase!.rpc('sync_cursor');
 		if (error || !data) return null;
-		return new Date(String(data)).toISOString();
+		return String(data);
 	} catch {
 		return null;
 	}
@@ -348,7 +188,7 @@ export async function syncNow(): Promise<void> {
 		syncStatus.lastSyncAt = new Date().toISOString();
 	} catch (err) {
 		console.warn('sync failed', err);
-		syncStatus.state = navigator.onLine ? 'error' : 'offline';
+		syncStatus.state = navigator.onLine === false ? 'offline' : 'error';
 		syncStatus.error = err instanceof Error ? err.message : String(err);
 	} finally {
 		syncStatus.pendingChanges = await countPending().catch(() => 0);
@@ -375,9 +215,12 @@ export function startSyncEngine(): void {
 	});
 
 	window.addEventListener('online', () => void syncNow());
-	setInterval(() => {
-		if (!document.hidden) void syncNow();
-	}, 5 * 60_000);
+	setInterval(
+		() => {
+			if (!document.hidden) void syncNow();
+		},
+		5 * 60_000
+	);
 
 	void countPending().then((n) => (syncStatus.pendingChanges = n));
 
