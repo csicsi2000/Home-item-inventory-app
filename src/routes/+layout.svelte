@@ -11,6 +11,7 @@
 	import { initAuth } from '$lib/sync/auth.svelte';
 	import { startSyncEngine } from '$lib/sync/engine.svelte';
 	import { initPwa } from '$lib/pwa.svelte';
+	import { processQueue } from '$lib/ml/queue.svelte';
 
 	let { children } = $props();
 
@@ -23,7 +24,19 @@
 		initAuth();
 		const stopSync = startSyncEngine();
 		initPwa();
-		return stopSync;
+
+		// resume recognition jobs left over from a previous session, and retry when
+		// the network or the tab comes back
+		processQueue.start();
+		const resume = () => void processQueue.drain();
+		window.addEventListener('online', resume);
+		document.addEventListener('visibilitychange', resume);
+
+		return () => {
+			stopSync();
+			window.removeEventListener('online', resume);
+			document.removeEventListener('visibilitychange', resume);
+		};
 	});
 </script>
 

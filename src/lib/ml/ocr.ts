@@ -31,10 +31,22 @@ function getWorker(): Promise<Worker> {
 	return workerPromise;
 }
 
+/** Recognitions currently in flight; the worker must outlive all of them. */
+let inflight = 0;
+
 /** Free ~100MB of wasm memory when OCR hasn't been used for a while. */
 function scheduleIdleTerminate() {
 	clearTimeout(idleTimer);
 	idleTimer = setTimeout(async () => {
+		// The timer used to be armed only at the END of a recognition and never
+		// cleared when a new one began, so a timer set 60s ago could terminate the
+		// worker mid-recognize — the OCR result was lost into a console warning and
+		// the item silently never got named. Reachable with normal scan pacing,
+		// since preprocess + recognize takes seconds on a phone.
+		if (inflight > 0) {
+			scheduleIdleTerminate();
+			return;
+		}
 		const promise = workerPromise;
 		workerPromise = null;
 		try {
@@ -45,13 +57,25 @@ function scheduleIdleTerminate() {
 	}, IDLE_TERMINATE_MS);
 }
 
+/** Hold the worker open for the duration of `fn`. */
+async function withWorker<T>(fn: (worker: Worker) => Promise<T>): Promise<T> {
+	clearTimeout(idleTimer);
+	idleTimer = undefined;
+	inflight++;
+	try {
+		return await fn(await getWorker());
+	} finally {
+		inflight--;
+		if (inflight === 0) scheduleIdleTerminate();
+	}
+}
+
 /**
  * Load the OCR worker so its assets are fetched (and service-worker cached) up
  * front, then schedule it to free its memory. Used by the "download models" flow.
  */
 export async function warmupOcr(): Promise<void> {
-	await getWorker();
-	scheduleIdleTerminate();
+	await withWorker(async () => {});
 }
 
 export interface OcrOutcome {
@@ -184,15 +208,26 @@ export function rankNames(lines: OcrLine[], imageHeight: number): string[] {
 
 /** OCR one photo blob. */
 export async function recognizePhoto(blob: Blob): Promise<OcrOutcome> {
-	const worker = await getWorker();
-	// preprocess for accuracy; fall back to the raw blob if canvas work fails
-	let input: Blob | HTMLCanvasElement = blob;
-	try {
-		input = await preprocess(blob);
-	} catch (err) {
-		console.warn('OCR preprocess failed, using raw image', err);
-	}
-	const { data } = await worker.recognize(input, {}, { blocks: true, text: true });
+	// the whole body runs inside withWorker, preprocess included — it is slow on
+	// large images and used to sit inside the idle-terminate window
+	const data = await withWorker(async (worker) => {
+		// preprocess for accuracy; fall back to the raw blob if canvas work fails
+		let input: Blob | HTMLCanvasElement = blob;
+		try {
+			input = await preprocess(blob);
+		} catch (err) {
+			console.warn('OCR preprocess failed, using raw image', err);
+		}
+		try {
+			return (await worker.recognize(input, {}, { blocks: true, text: true })).data;
+		} catch (err) {
+			// a worker that died under us (terminated, OOM) — retry once on a fresh one
+			console.warn('OCR failed, retrying with a fresh worker', err);
+			workerPromise = null;
+			const fresh = await getWorker();
+			return (await fresh.recognize(input, {}, { blocks: true, text: true })).data;
+		}
+	});
 
 	const lines: OcrLine[] = [];
 	let imageBottom = 1;
@@ -209,8 +244,6 @@ export async function recognizePhoto(blob: Blob): Promise<OcrOutcome> {
 			}
 		}
 	}
-
-	scheduleIdleTerminate();
 
 	const text = lines
 		.map((l) => cleanLine(l.text))
