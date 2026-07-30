@@ -22,6 +22,8 @@ class SyncStatus {
 	lastSyncAt = $state<string | null>(null);
 	error = $state<string | null>(null);
 	pendingChanges = $state(0);
+	/** Sync works, but some feature is unavailable server-side (e.g. sharing). */
+	degraded = $state<string | null>(null);
 }
 
 export const syncStatus = new SyncStatus();
@@ -321,8 +323,11 @@ export async function syncNow(): Promise<void> {
 
 		if (!unchanged) {
 			await pull();
-			await refreshShareGrants();
-			await purgeRevokedShares();
+			const sharingAvailable = await refreshShareGrants();
+			syncStatus.degraded = sharingAvailable
+				? null
+				: 'Sharing is unavailable — the Supabase schema needs updating.';
+			if (sharingAvailable) await purgeRevokedShares();
 			// drain the download backlog in bounded batches
 			let hydrated = 0;
 			for (;;) {

@@ -88,6 +88,9 @@
 						{#if syncStatus.error}
 							<p class="mt-1 text-xs text-destructive">{syncStatus.error}</p>
 						{/if}
+						{#if syncStatus.degraded}
+							<p class="mt-1 text-xs text-amber-600 dark:text-amber-500">{syncStatus.degraded}</p>
+						{/if}
 					</div>
 					<Button
 						size="sm"
