@@ -8,6 +8,7 @@
 		createItem,
 		deleteItems,
 		moveItems,
+		restoreItems,
 		setItemsStatus,
 		updateCollection
 	} from '$lib/db/repo';
@@ -241,7 +242,18 @@
 		await deleteItems(ids);
 		confirmingBulkDelete = false;
 		exitSelect();
-		toast.success(`Deleted ${ids.length} item${ids.length === 1 ? '' : 's'}`);
+		// A mis-tapped bulk delete is the most expensive mistake in the app; undo
+		// has to be right there, not three screens away in the trash.
+		toast.success(`Deleted ${ids.length} item${ids.length === 1 ? '' : 's'}`, {
+			action: {
+				label: 'Undo',
+				onClick: () => {
+					void restoreItems(ids).then((n) =>
+						toast.success(`Restored ${n} item${n === 1 ? '' : 's'}`)
+					);
+				}
+			}
+		});
 	}
 
 	const plural = (n: number) => `${n} item${n === 1 ? '' : 's'}`;
@@ -937,7 +949,8 @@
 		<AlertDialog.Header>
 			<AlertDialog.Title>Delete {selected.size} item{selected.size === 1 ? '' : 's'}?</AlertDialog.Title>
 			<AlertDialog.Description>
-				They’ll be removed from this collection on every synced device. This can’t be undone.
+				They’ll be removed from this collection on every synced device. You can restore them from
+				Recently deleted for 30 days.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>

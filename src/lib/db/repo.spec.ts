@@ -10,10 +10,13 @@ import {
 	deleteCollection,
 	deleteItem,
 	deletePhoto,
+	listDeletedItems,
 	markStatus,
+	now,
 	moveItems,
 	onItemsChanged,
 	primaryPhoto,
+	restoreItems,
 	purgeTombstones,
 	setItemsStatus,
 	updateItem
@@ -220,5 +223,99 @@ describe('repo', () => {
 			'fresh tombstone',
 			'old unpushed tombstone'
 		]);
+	});
+	it('restores a deleted item together with the photos that delete took', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Vader' });
+		const kept = await addPhoto(item.id, {
+			blob: makeBlob(),
+			thumb: makeBlob(),
+			width: 1,
+			height: 1
+		});
+		const dropped = await addPhoto(item.id, {
+			blob: makeBlob(),
+			thumb: makeBlob(),
+			width: 1,
+			height: 1
+		});
+		// deleted earlier and on purpose — restoring the item must not bring it back
+		await deletePhoto(dropped.id);
+		await deleteItem(item.id);
+
+		const restored = await restoreItems([item.id]);
+
+		expect(restored).toBe(1);
+		expect((await db.items.get(item.id))!.deletedAt).toBeNull();
+		expect((await db.photos.get(kept.id))!.deletedAt).toBeNull();
+		expect((await db.photos.get(dropped.id))!.deletedAt).not.toBeNull();
+	});
+
+	it('re-marks restored rows dirty so the undo reaches other devices', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Vader' });
+		await deleteItem(item.id);
+		await db.items.update(item.id, { dirty: 0 });
+
+		await restoreItems([item.id]);
+
+		expect((await db.items.get(item.id))!.dirty).toBe(1);
+	});
+
+	it('ignores ids that are not deleted', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Vader' });
+		expect(await restoreItems([item.id, 'missing'])).toBe(0);
+	});
+
+	it('lists tombstones newest deletion first', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const older = await createItem({ collectionId: c.id, name: 'older' });
+		const newer = await createItem({ collectionId: c.id, name: 'newer' });
+		await deleteItem(older.id);
+		await db.items.update(older.id, { deletedAt: '2026-01-01T00:00:00.000Z' });
+		await deleteItem(newer.id);
+		await db.items.update(newer.id, { deletedAt: '2026-06-01T00:00:00.000Z' });
+
+		expect((await listDeletedItems()).map((i) => i.name)).toEqual(['newer', 'older']);
+	});
+
+	// Emptying the trash passes olderThanDays 0; tying the orphan grace to it would
+	// drop photo rows whose storage object still exists, orphaning them in the bucket.
+	it('keeps photo rows whose cloud object has not been removed yet', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Vader' });
+		const photo = await addPhoto(item.id, {
+			blob: makeBlob(),
+			thumb: makeBlob(),
+			width: 1,
+			height: 1
+		});
+		await deleteItem(item.id);
+		// pushed tombstone whose object is still up there
+		await db.items.update(item.id, { dirty: 0 });
+		await db.photos.update(photo.id, { dirty: 0, uploaded: 1, storagePath: 'u/p.webp' });
+
+		await purgeTombstones(0, 60);
+
+		expect(await db.items.get(item.id)).toBeUndefined();
+		expect(await db.photos.get(photo.id)).toBeDefined();
+	});
+	// updatedAt is the identity of a row version: the push clears `dirty` only when
+	// it still matches what was sent. Two writes in the same millisecond used to
+	// collide, so an edit made mid-flight was marked as pushed and never sent.
+	it('never issues the same timestamp twice, even inside one millisecond', () => {
+		const stamps = Array.from({ length: 500 }, () => now());
+		expect(new Set(stamps).size).toBe(stamps.length);
+		expect([...stamps].sort()).toEqual(stamps);
+	});
+
+	it('gives an edit a distinct version from the create it follows', async () => {
+		const c = await createCollection({ name: 'Cards' });
+		const item = await createItem({ collectionId: c.id, name: 'Card' });
+		const created = item.updatedAt;
+		await updateItem(item.id, { name: 'Edited' });
+
+		expect((await db.items.get(item.id))!.updatedAt).not.toBe(created);
 	});
 });

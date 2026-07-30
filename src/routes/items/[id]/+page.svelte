@@ -13,7 +13,7 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import ScanTextIcon from '@lucide/svelte/icons/scan-text';
-	import { updateItem } from '$lib/db/repo';
+	import { restoreItems, updateItem } from '$lib/db/repo';
 	import { canWrite, collectionRole } from '$lib/state/access.svelte';
 	import { toast } from 'svelte-sonner';
 
@@ -73,6 +73,14 @@
 		await deleteItem(itemId);
 		confirmingDelete = false;
 		await goto(collectionId ? `${base}/collections/${collectionId}` : `${base}/`);
+		toast.success('Item deleted', {
+			action: {
+				label: 'Undo',
+				onClick: () => {
+					void restoreItems([itemId]).then(() => toast.success('Item restored'));
+				}
+			}
+		});
 	}
 </script>
 
@@ -205,7 +213,7 @@
 			<AlertDialog.Title>Delete this item?</AlertDialog.Title>
 			<AlertDialog.Description>
 				“{item.current?.name || 'Untitled item'}” and its photos will be removed from every synced
-				device.
+				device. You can restore it from Recently deleted for 30 days.
 			</AlertDialog.Description>
 		</AlertDialog.Header>
 		<AlertDialog.Footer>

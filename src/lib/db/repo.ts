@@ -2,7 +2,26 @@ import { db } from './schema';
 import type { Collection, Item, ItemPhoto, ItemStatus, UUID } from './types';
 import { descendantIds } from '$lib/tree';
 
-export const now = () => new Date().toISOString();
+let lastNow = 0;
+
+/**
+ * A strictly increasing write timestamp.
+ *
+ * `updatedAt` is not just a clock reading — it is the identity of a row version.
+ * The push clears `dirty` only when the row's `updatedAt` still equals the one it
+ * sent, which is what stops an edit made mid-flight from being marked as pushed.
+ * ISO strings carry milliseconds, so two writes landing in the same millisecond
+ * were indistinguishable: the second edit's dirty flag was cleared without ever
+ * being sent, and that change never reached the cloud. Common in practice —
+ * an edit right after a create, or any programmatic pair of writes.
+ *
+ * Advancing by a millisecond when the clock hasn't moved keeps every version
+ * distinct and keeps last-write-wins ordering meaningful.
+ */
+export const now = () => {
+	lastNow = Math.max(Date.now(), lastNow + 1);
+	return new Date(lastNow).toISOString();
+};
 export const newId = () => crypto.randomUUID();
 
 /** Fired after any write that changes items — the search index subscribes to this. */
@@ -122,7 +141,19 @@ export async function updateItem(
 
 async function tombstoneItem(id: UUID, t: string): Promise<void> {
 	await db.items.update(id, { deletedAt: t, updatedAt: t, dirty: 1 });
-	await db.photos.where('itemId').equals(id).modify({ deletedAt: t, updatedAt: t, dirty: 1 });
+	await db.photos
+		.where('itemId')
+		.equals(id)
+		.modify((photo) => {
+			// Leave photos the user already deleted alone. Re-stamping them would
+			// lose the time they were actually deleted, re-dirty a row that has
+			// already synced, and make restoring the item resurrect photos the user
+			// removed on purpose.
+			if (photo.deletedAt) return;
+			photo.deletedAt = t;
+			photo.updatedAt = t;
+			photo.dirty = 1;
+		});
 	await db.embeddings.where('itemId').equals(id).delete();
 }
 
@@ -141,6 +172,46 @@ export async function deleteItems(ids: UUID[]): Promise<void> {
 		for (const id of ids) await tombstoneItem(id, t);
 	});
 	notifyItemsChanged(ids);
+}
+
+/**
+ * Undo a tombstone.
+ *
+ * A deleted item's photos were tombstoned in the same transaction and therefore
+ * carry the item's exact `deletedAt`. Matching on that timestamp restores what
+ * this delete took and leaves photos the user had deleted individually — earlier,
+ * on purpose — where they are.
+ */
+export async function restoreItems(ids: UUID[]): Promise<number> {
+	if (!ids.length) return 0;
+	const t = now();
+	let restored = 0;
+	await db.transaction('rw', [db.items, db.photos], async () => {
+		for (const id of ids) {
+			const item = await db.items.get(id);
+			if (!item?.deletedAt) continue;
+			const deletedAt = item.deletedAt;
+			await db.photos
+				.where('itemId')
+				.equals(id)
+				.modify((photo) => {
+					if (photo.deletedAt !== deletedAt) return;
+					photo.deletedAt = null;
+					photo.updatedAt = t;
+					photo.dirty = 1;
+				});
+			await db.items.update(id, { deletedAt: null, updatedAt: t, dirty: 1 });
+			restored++;
+		}
+	});
+	notifyItemsChanged(ids);
+	return restored;
+}
+
+/** Tombstoned items still inside the retention window, newest deletion first. */
+export async function listDeletedItems(): Promise<Item[]> {
+	const items = await db.items.where('deletedAt').above('').toArray();
+	return items.sort((a, b) => (b.deletedAt ?? '').localeCompare(a.deletedAt ?? ''));
 }
 
 export async function moveItem(id: UUID, collectionId: UUID): Promise<void> {
@@ -272,14 +343,23 @@ export async function primaryPhoto(itemId: UUID): Promise<ItemPhoto | undefined>
 
 // ---------- maintenance ----------
 
-/** Hard-delete tombstones that are old and already pushed (dirty=0). */
-export async function purgeTombstones(olderThanDays = 30): Promise<number> {
+/**
+ * Hard-delete tombstones that are old and already pushed (dirty=0).
+ *
+ * `orphanGraceDays` is separate from `olderThanDays` because "empty the trash
+ * now" passes 0 for the latter: a photo row is the only record of its storage
+ * object's path, so tying the two together would make emptying the trash orphan
+ * every not-yet-removed object in the bucket forever.
+ */
+export async function purgeTombstones(
+	olderThanDays = 30,
+	orphanGraceDays = 2 * olderThanDays
+): Promise<number> {
 	const cutoff = new Date(Date.now() - olderThanDays * 86_400_000).toISOString();
-	// A photo row is the only record of its storage object's path. Purging it
-	// before removeDeletedPhotoObjects has cleared the object (which it signals by
-	// resetting uploaded to 0) would orphan that object in the bucket forever.
-	// The doubled cutoff is a backstop for objects the server never lets us delete.
-	const orphanCutoff = new Date(Date.now() - 2 * olderThanDays * 86_400_000).toISOString();
+	// A photo row is only purged once removeDeletedPhotoObjects has cleared its
+	// object (which it signals by resetting uploaded to 0). The orphan cutoff is a
+	// backstop for objects the server never lets us delete.
+	const orphanCutoff = new Date(Date.now() - orphanGraceDays * 86_400_000).toISOString();
 	let purged = 0;
 	await db.transaction('rw', [db.collections, db.items, db.photos], async () => {
 		for (const table of [db.collections, db.items] as const) {

@@ -21,6 +21,8 @@
 	import { ensurePersisted, refreshStorageEstimate, storage } from '$lib/db/quota.svelte';
 	import { itemsToCsv } from '$lib/csv';
 	import { toast } from 'svelte-sonner';
+	import { base } from '$app/paths';
+	import Trash2Icon from '@lucide/svelte/icons/trash-2';
 	import DownloadIcon from '@lucide/svelte/icons/download';
 	import CloudDownloadIcon from '@lucide/svelte/icons/cloud-download';
 	import CheckIcon from '@lucide/svelte/icons/check';
@@ -577,6 +579,10 @@
 				<Button variant="outline" onclick={requestPersist} disabled={persisted === true}>
 					<ShieldCheckIcon class="size-4" />
 					{persisted ? 'Storage protected' : 'Protect local storage'}
+				</Button>
+				<Button variant="outline" href="{base}/trash">
+					<Trash2Icon class="size-4" />
+					Recently deleted
 				</Button>
 			</div>
 			{#if storage.usedFraction !== null}
