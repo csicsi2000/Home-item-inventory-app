@@ -29,7 +29,7 @@
 		"fake-indexeddb": "^6.2.5",
 		"mode-watcher": "^1.1.0",
 		"shadcn-svelte": "^1.4.2",
-		"svelte": "^5.56.1",
+		"svelte": "^5.56.8",
 		"svelte-check": "^4.6.0",
 		"svelte-sonner": "^1.1.1",
 		"tailwind-merge": "^3.6.0",
@@ -42,7 +42,7 @@
 	},
 	"dependencies": {
 		"@huggingface/transformers": "^4.2.0",
-		"@supabase/supabase-js": "^2.110.6",
+		"@supabase/supabase-js": "^2.110.8",
 		"@tensorflow/tfjs-backend-wasm": "^4.22.0",
 		"@tensorflow/tfjs-backend-webgl": "^4.22.0",
 		"@tensorflow/tfjs-converter": "^4.22.0",
